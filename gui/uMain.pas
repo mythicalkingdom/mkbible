@@ -6,13 +6,10 @@ interface
 uses
   Classes, SysUtils, StrUtils, Graphics, Forms, Controls, StdCtrls, ExtCtrls, Menus, Clipbrd, LCLType, Math, Dialogs,
   BGRABitmap, BGRABitmapTypes, BGRAVirtualScreen, BCButton, BCTypes,
+  LazUTF8, Types, uTheme, uDialogs,
   MKBibMod, MKBibAbs, MKBibAny, MKBibMkp, mkbiblecfg, mkbiblescan;
 
 type
-  TTheme = record
-    Bg, Panel, Text, Muted, Accent, AccentSoft, Red, Line, Hover, Mark: TColor;
-  end;
-
   TTokKind = (tkWord, tkNum, tkHead, tkBreak, tkGap);
   TTok = record
     Txt: String;
@@ -22,6 +19,7 @@ type
   end;
   TRun = record
     X, Y, W: Integer;
+    Hard: Boolean;           { starts a new line of its own (not a soft wrap) }
     T: TTok;
   end;
 
@@ -29,6 +27,15 @@ type
     Kind: Integer;           { 0 testament label, 1 book, 2 chapter grid }
     Book, Y, H: Integer;
     Txt: String;
+  end;
+
+  TMenuItemDef = record
+    Cap, Key: String;
+    Cmd: Integer;
+    Sep: Boolean;
+  end;
+  TSelPos = record
+    Run, Ch: Integer;
   end;
 
   THit = record
@@ -40,8 +47,16 @@ type
   TMainForm = class(TForm)
   private
     Top_: TPanel;
-    Side, Pane: TBGRAVirtualScreen;
-    BtnMod, BtnPrev, BtnNext, BtnCopy, BtnTheme, BtnSmaller, BtnBigger: TBCButton;
+    MenuBar, Drop, Side, Pane: TBGRAVirtualScreen;
+    BtnMod, BtnPrev, BtnNext, BtnSmaller, BtnBigger: TBCButton;
+    MenuTitles: array of String;
+    MenuRects: array of TRect;
+    MenuOpen, MenuHover, DropHover: Integer;
+    DropItems: array of TMenuItemDef;
+    DropEntered: Boolean;
+    SelA, SelB, SelAnchor: TSelPos;
+    HasSel, Selecting, Moved: Boolean;
+    DownX, DownY: Integer;
     SearchBox: TPanel;
     SearchEd: TEdit;
     TitleLbl: TLabel;
@@ -53,7 +68,7 @@ type
     ModSpec, ModName: String;
     CurBook, CurChap: Integer;
     FontSize, FontBase: Integer;   { pixels on this screen / at 96 dpi }
-    SerifName, SansName: String;
+    SerifName, SansName, ReadFont: String;
     Toks: array of TTok;
     Runs: array of TRun;
     ContentH, ScrollY, SideScroll, SideHover: Integer;
@@ -63,6 +78,28 @@ type
     HitTerm: String;
     Rows: array of TSideRow;
     procedure ShowOnce(Sender: TObject);
+    procedure BuildMenus;
+    procedure OpenMenu(Idx: Integer);
+    procedure CloseDrop;
+    procedure DoCommand(Cmd: Integer);
+    procedure MenuBarRedraw(Sender: TObject; Bitmap: TBGRABitmap);
+    procedure MenuBarMouseMove(Sender: TObject; Shift: TShiftState; X, Y: Integer);
+    procedure MenuBarMouseLeave(Sender: TObject);
+    procedure MenuBarMouseUp(Sender: TObject; Button: TMouseButton; Shift: TShiftState; X, Y: Integer);
+    procedure DropRedraw(Sender: TObject; Bitmap: TBGRABitmap);
+    procedure DropMouseMove(Sender: TObject; Shift: TShiftState; X, Y: Integer);
+    procedure DropMouseLeave(Sender: TObject);
+    procedure DropMouseUp(Sender: TObject; Button: TMouseButton; Shift: TShiftState; X, Y: Integer);
+    procedure PaneMouseDown(Sender: TObject; Button: TMouseButton; Shift: TShiftState; X, Y: Integer);
+    procedure PaneMouseMove(Sender: TObject; Shift: TShiftState; X, Y: Integer);
+    procedure PaneDblClick(Sender: TObject);
+    function MeasureRun(const R: TRun; const Txt: String): Integer;
+    function HitPos(X, Y: Integer): TSelPos;
+    function SelText: String;
+    procedure ClearSel;
+    procedure CopySelection;
+    procedure DoPaths;
+    procedure DoFont;
     procedure BuildUI;
     procedure StyleButton(B: TBCButton; Accent: Boolean);
     procedure ApplyTheme;
@@ -112,15 +149,6 @@ var
 
 implementation
 
-var
-  Sc: Double = 1.0;          { screen scale: PixelsPerInch / 96 (HiDPI) }
-
-{ a size in 96 dpi pixels, scaled to this screen }
-function S_(N: Integer): Integer;
-begin
-  Result := Round(N * Sc);
-end;
-
 function SideW: Integer; begin Result := S_(270); end;
 function TopH: Integer; begin Result := S_(60); end;
 function ColMax: Integer; begin Result := S_(700); end;
@@ -131,39 +159,6 @@ var
 
 const
   SearchHint = 'Search the Bible…';
-
-function Pix(C: TColor): TBGRAPixel;
-begin
-  Result := ColorToBGRA(ColorToRGB(C));
-end;
-
-function LightTheme: TTheme;
-begin
-  Result.Bg := RGBToColor($FD, $FC, $F9);
-  Result.Panel := RGBToColor($F3, $F1, $EC);
-  Result.Text := RGBToColor($26, $26, $2B);
-  Result.Muted := RGBToColor($8B, $87, $7E);
-  Result.Accent := RGBToColor($3B, $5B, $C9);
-  Result.AccentSoft := RGBToColor($E3, $E9, $FB);
-  Result.Red := RGBToColor($B0, $2A, $2A);
-  Result.Line := RGBToColor($E4, $E0, $D8);
-  Result.Hover := RGBToColor($EA, $E7, $E0);
-  Result.Mark := RGBToColor($FF, $E8, $8A);
-end;
-
-function DarkTheme: TTheme;
-begin
-  Result.Bg := RGBToColor($1B, $1C, $20);
-  Result.Panel := RGBToColor($23, $24, $29);
-  Result.Text := RGBToColor($DC, $DA, $D3);
-  Result.Muted := RGBToColor($86, $85, $80);
-  Result.Accent := RGBToColor($8C, $A8, $FF);
-  Result.AccentSoft := RGBToColor($2C, $34, $52);
-  Result.Red := RGBToColor($FF, $8A, $80);
-  Result.Line := RGBToColor($33, $34, $3A);
-  Result.Hover := RGBToColor($2C, $2D, $33);
-  Result.Mark := RGBToColor($6B, $5A, $10);
-end;
 
 { ------------------------------------------------------------------ construction }
 
@@ -182,7 +177,9 @@ begin
   OnKeyDown := @FormKey;
   OnResize := @DoResize;
   Mz := TBGRABitmap.Create(1, 1);
-  SerifName := PickFont(['Noto Serif', 'Georgia', 'Cambria', 'Liberation Serif', 'DejaVu Serif', 'Times New Roman'], 'serif');
+  ReadFont := GetSetting('gui.font', '');
+  if (ReadFont <> '') and (Screen.Fonts.IndexOf(ReadFont) >= 0) then SerifName := ReadFont
+  else begin ReadFont := ''; SerifName := PickFont(['Noto Serif', 'Georgia', 'Cambria', 'Liberation Serif', 'DejaVu Serif', 'Times New Roman'], 'serif'); end;
   SansName := PickFont(['Lato', 'Segoe UI', 'Cantarell', 'Noto Sans', 'DejaVu Sans', 'Arial'], 'sans');
   FontBase := Max(13, Min(32, StrToIntDef(GetSetting('gui.fontsize', '19'), 19)));
   FontSize := S_(FontBase);
@@ -212,6 +209,20 @@ begin
   for B := 1 to ParamCount do
     begin
     if ParamStr(B) = '--dark' then begin Dark := True; ApplyTheme; end;
+    if (ParamStr(B) = '--menu') and (B < ParamCount) then OpenMenu(StrToIntDef(ParamStr(B + 1), 0));
+    if ParamStr(B) = '--select' then
+      begin
+      if Length(Runs) > 10 then
+        begin
+        SelA.Run := 4; SelA.Ch := 2; SelB.Run := 24; SelB.Ch := 3; HasSel := True; Redraw;
+        end;
+      end;
+    if (ParamStr(B) = '--dialog') and (B < ParamCount) then
+      case ParamStr(B + 1) of
+        'font': DoFont;
+        'paths': DoPaths;
+        'keys': DoCommand(10);
+      end;
     if (ParamStr(B) = '--search') and (B < ParamCount) then begin Hinting := False; SearchEd.Font.Color := Theme.Text; SearchEd.Text := ParamStr(B + 1); RunSearch(ParamStr(B + 1)); end;
     if (ParamStr(B) = '--chapter') and (B + 1 < ParamCount) then GoChapter(StrToIntDef(ParamStr(B + 1), 1), StrToIntDef(ParamStr(B + 2), 1));
     end;
@@ -236,39 +247,7 @@ end;
 
 procedure TMainForm.StyleButton(B: TBCButton; Accent: Boolean);
 begin
-  B.Rounding.RoundX := S_(10);
-  B.Rounding.RoundY := S_(10);
-  B.StateNormal.Border.Style := bboNone;
-  B.StateHover.Border.Style := bboNone;
-  B.StateClicked.Border.Style := bboNone;
-  B.StateNormal.Background.Style := bbsColor;
-  B.StateHover.Background.Style := bbsColor;
-  B.StateClicked.Background.Style := bbsColor;
-  if Accent then
-    begin
-    B.StateNormal.Background.Color := Theme.AccentSoft;
-    B.StateHover.Background.Color := Theme.Hover;
-    B.StateClicked.Background.Color := Theme.Line;
-    end
-  else
-    begin
-    B.StateNormal.Background.Color := Theme.Panel;
-    B.StateHover.Background.Color := Theme.Hover;
-    B.StateClicked.Background.Color := Theme.Line;
-    end;
-  B.StateNormal.FontEx.Color := Theme.Text;
-  B.StateHover.FontEx.Color := Theme.Text;
-  B.StateClicked.FontEx.Color := Theme.Text;
-  B.StateNormal.FontEx.Name := SansName;
-  B.StateHover.FontEx.Name := SansName;
-  B.StateClicked.FontEx.Name := SansName;
-  B.StateNormal.FontEx.Shadow := False;
-  B.StateHover.FontEx.Shadow := False;
-  B.StateClicked.FontEx.Shadow := False;
-  B.StateNormal.FontEx.Height := S_(15);
-  B.StateHover.FontEx.Height := S_(15);
-  B.StateClicked.FontEx.Height := S_(15);
-  B.Invalidate;
+  StyleBtn(B, Theme, Accent);
 end;
 
 procedure TMainForm.BuildUI;
@@ -289,6 +268,14 @@ begin
   Top_.Align := alTop;
   Top_.Height := TopH;
   Top_.BevelOuter := bvNone;
+  MenuBar := TBGRAVirtualScreen.Create(Self);
+  MenuBar.Parent := Self;
+  MenuBar.Align := alTop;
+  MenuBar.Height := S_(34);
+  MenuBar.OnRedraw := @MenuBarRedraw;
+  MenuBar.OnMouseMove := @MenuBarMouseMove;
+  MenuBar.OnMouseLeave := @MenuBarMouseLeave;
+  MenuBar.OnMouseUp := @MenuBarMouseUp;
   Side := TBGRAVirtualScreen.Create(Self);
   Side.Parent := Self;
   Side.Align := alLeft;
@@ -304,13 +291,15 @@ begin
   Pane.OnRedraw := @PaneRedraw;
   Pane.OnMouseWheel := @PaneWheel;
   Pane.OnMouseUp := @PaneMouseUp;
+  Pane.OnMouseDown := @PaneMouseDown;
+  Pane.OnMouseMove := @PaneMouseMove;
+  Pane.OnDblClick := @PaneDblClick;
+  Pane.Cursor := crIBeam;
   BtnMod := MakeBtn('Open module', S_(230), @ModClick);
   BtnPrev := MakeBtn('‹', S_(40), @PrevClick);
   BtnNext := MakeBtn('›', S_(40), @NextClick);
-  BtnCopy := MakeBtn('Copy', S_(64), @CopyClick);
   BtnSmaller := MakeBtn('A−', S_(44), @SmallerClick);
   BtnBigger := MakeBtn('A+', S_(44), @BiggerClick);
-  BtnTheme := MakeBtn('Dark', S_(64), @ThemeClick);
   TitleLbl := TLabel.Create(Self);
   TitleLbl.Parent := Top_;
   TitleLbl.AutoSize := True;
@@ -326,11 +315,21 @@ begin
   SearchEd.OnExit := @SearchExit;
   SearchEd.OnKeyDown := @SearchKey;
   Pop := TPopupMenu.Create(Self);
+  Drop := TBGRAVirtualScreen.Create(Self);
+  Drop.Parent := Self;
+  Drop.Visible := False;
+  Drop.OnRedraw := @DropRedraw;
+  Drop.OnMouseMove := @DropMouseMove;
+  Drop.OnMouseLeave := @DropMouseLeave;
+  Drop.OnMouseUp := @DropMouseUp;
+  MenuOpen := -1; MenuHover := -1; DropHover := -1;
+  BuildMenus;
 end;
 
 procedure TMainForm.ApplyTheme;
 begin
   if Dark then Theme := DarkTheme else Theme := LightTheme;
+  Theme.SansName := SansName;
   Color := Theme.Bg;
   Top_.Color := Theme.Bg;
   SearchBox.Color := Theme.Panel;
@@ -345,11 +344,8 @@ begin
   StyleButton(BtnMod, True);
   StyleButton(BtnPrev, False);
   StyleButton(BtnNext, False);
-  StyleButton(BtnCopy, False);
   StyleButton(BtnSmaller, False);
   StyleButton(BtnBigger, False);
-  StyleButton(BtnTheme, False);
-  if Dark then BtnTheme.Caption := 'Light' else BtnTheme.Caption := 'Dark';
   Redraw;
 end;
 
@@ -365,10 +361,8 @@ begin
   TitleLbl.Left := SideW + S_(124);
   TitleLbl.Top := (TopH - TitleLbl.Height) div 2;
   X := ClientWidth - S_(16);
-  X := X - BtnTheme.Width; BtnTheme.SetBounds(X, Y, BtnTheme.Width, H);
-  X := X - S_(8) - BtnBigger.Width; BtnBigger.SetBounds(X, Y, BtnBigger.Width, H);
+  X := X - BtnBigger.Width; BtnBigger.SetBounds(X, Y, BtnBigger.Width, H);
   X := X - S_(4) - BtnSmaller.Width; BtnSmaller.SetBounds(X, Y, BtnSmaller.Width, H);
-  X := X - S_(8) - BtnCopy.Width; BtnCopy.SetBounds(X, Y, BtnCopy.Width, H);
   X := X - S_(12) - SearchBox.Width; SearchBox.SetBounds(X, Y, SearchBox.Width, H);
   SearchEd.SetBounds(S_(14), (H - SearchEd.Height) div 2, SearchBox.Width - S_(28), SearchEd.Height);
   LayoutRuns;
@@ -406,6 +400,7 @@ begin
   if C > Bib^.GetChapterCount(B) then C := Bib^.GetChapterCount(B);
   CurBook := B; CurChap := C;
   SearchMode := False;
+  ClearSel;
   LoadChapterToks;
   LayoutRuns;
   ScrollY := 0;
@@ -555,15 +550,17 @@ var
   ColW, X, Y, i, W, LineH, Sp, NumSz, HeadSz, Left0: Integer;
   T: TTok;
   Lines: Integer;
-  NeedSp: Boolean;
+  NeedSp, PendHard: Boolean;
 
   procedure NewLine(Extra: Integer);
   begin
     X := 0; Y := Y + LineH + Extra; NeedSp := False;
   end;
 
-  procedure AddRun(const R: TRun);
+  procedure AddRun(var R: TRun);
   begin
+    R.Hard := PendHard;
+    PendHard := False;
     SetLength(Runs, Length(Runs) + 1);
     Runs[High(Runs)] := R;
   end;
@@ -581,7 +578,7 @@ begin
   NumSz := Max(S_(10), Round(FontSize * 0.62));
   HeadSz := Max(S_(12), Round(FontSize * 0.85));
   Sp := MeasureText(' ', FontSize, False, False, not SearchMode);
-  X := 0; Y := S_(34); NeedSp := False; CurVerse := 0;
+  X := 0; Y := S_(34); NeedSp := False; CurVerse := 0; PendHard := False;
   for i := 0 to High(Toks) do
     begin
     T := Toks[i];
@@ -611,6 +608,7 @@ begin
         end;
       tkHead:
         begin
+        PendHard := Length(Runs) > 0;
         if X > 0 then NewLine(0);
         if Y > S_(40) then Y := Y + Round(LineH * 0.5);
         W := MeasureText(T.Txt, HeadSz, True, False, False);
@@ -619,14 +617,16 @@ begin
         R.T.Kind := tkHead;
         AddRun(R);
         Y := Y + Round(LineH * 0.9);
-        X := 0; NeedSp := False;
+        X := 0; NeedSp := False; PendHard := True;
         end;
       tkBreak:
         begin
+        PendHard := Length(Runs) > 0;
         if X > 0 then NewLine(0);
         end;
       tkGap:
         begin
+        PendHard := Length(Runs) > 0;
         if X > 0 then NewLine(0);
         Y := Y + Round(LineH * 0.6);
         end;
@@ -645,6 +645,7 @@ end;
 
 procedure TMainForm.Redraw;
 begin
+  if MenuBar <> nil then MenuBar.DiscardBitmap;
   if Pane <> nil then Pane.DiscardBitmap;
   if Side <> nil then Side.DiscardBitmap;
 end;
@@ -653,7 +654,7 @@ end;
 
 procedure TMainForm.PaneRedraw(Sender: TObject; Bitmap: TBGRABitmap);
 var
-  i, NumSz, HeadSz, Y, H: Integer;
+  i, NumSz, HeadSz, Y, H, X0, X1: Integer;
   R: TRun;
   C: TBGRAPixel;
   Th: Integer;
@@ -679,6 +680,23 @@ begin
     Bitmap.TextOut(Pane.Width div 2, S_(120), 'Nothing found for “' + HitTerm + '”', Pix(Theme.Muted), taCenter);
     Exit;
   end;
+  if HasSel then
+    begin
+    C := Pix(Theme.Accent);
+    C.alpha := 80;
+    for i := SelA.Run to Min(SelB.Run, High(Runs)) do
+      begin
+      R := Runs[i];
+      Y := R.Y - ScrollY;
+      if (Y > Pane.Height) or (Y + H < 0) or (R.T.Kind = tkNum) then Continue;
+      X0 := R.X;
+      X1 := R.X + R.W;
+      if i = SelA.Run then X0 := R.X + MeasureRun(R, UTF8Copy(R.T.Txt, 1, SelA.Ch));
+      if i = SelB.Run then X1 := R.X + MeasureRun(R, UTF8Copy(R.T.Txt, 1, SelB.Ch))
+      else if (i < High(Runs)) and (Runs[i + 1].Y = R.Y) then X1 := Runs[i + 1].X;
+      if X1 > X0 then Bitmap.FillRect(X0, Y + S_(2), X1, Y + H - S_(2), C, dmDrawWithTransparency);
+      end;
+    end;
   for i := 0 to High(Runs) do
     begin
     R := Runs[i];
@@ -874,6 +892,9 @@ procedure TMainForm.PaneMouseUp(Sender: TObject; Button: TMouseButton; Shift: TS
 var
   i, H: Integer;
 begin
+  Selecting := False;
+  if Moved then Exit;
+  if HasSel then begin ClearSel; Redraw; end;
   if not SearchMode then Exit;
   H := Round(FontSize * 1.7);
   for i := 0 to High(Runs) do
@@ -900,9 +921,14 @@ begin
     VK_PRIOR: begin Dec(ScrollY, Pane.Height - S_(80)); ClampScroll; Redraw; Key := 0; end;
     VK_HOME: begin ScrollY := 0; Redraw; Key := 0; end;
     VK_END: begin ScrollY := ContentH; ClampScroll; Redraw; Key := 0; end;
-    VK_ESCAPE: if SearchMode then begin GoChapter(CurBook, CurChap); Key := 0; end;
+    VK_ESCAPE: if Drop.Visible then begin CloseDrop; Key := 0; end else if HasSel then begin ClearSel; Redraw; Key := 0; end else if SearchMode then begin GoChapter(CurBook, CurChap); Key := 0; end;
     VK_F: if ssCtrl in Shift then begin SearchEd.SetFocus; SearchEd.SelectAll; Key := 0; end;
-    VK_C: if ssCtrl in Shift then begin CopyClick(nil); Key := 0; end;
+    VK_C: if ssCtrl in Shift then begin if HasSel then CopySelection else CopyClick(nil); Key := 0; end;
+    VK_A: if ssCtrl in Shift then begin DoCommand(13); Key := 0; end;
+    VK_Q: if ssCtrl in Shift then begin Close; Key := 0; end;
+    VK_T: if ssCtrl in Shift then begin ThemeClick(nil); Key := 0; end;
+    VK_ADD, VK_OEM_PLUS: if ssCtrl in Shift then begin BiggerClick(nil); Key := 0; end;
+    VK_SUBTRACT, VK_OEM_MINUS: if ssCtrl in Shift then begin SmallerClick(nil); Key := 0; end;
     VK_O: if ssCtrl in Shift then begin ModClick(nil); Key := 0; end;
   end;
 end;
@@ -972,6 +998,7 @@ begin
     Screen.Cursor := crDefault;
   end;
   SearchMode := True;
+  ClearSel;
   SetLength(Toks, 0);
   for N := 0 to High(Hits) do
     begin
@@ -1083,6 +1110,397 @@ begin
   I := (Sender as TMenuItem).Tag;
   if OpenModule(Mods[I].Spec) then GoChapter(1, 1)
   else ShowMessage('Could not open ' + Mods[I].Disp);
+end;
+
+
+{ ------------------------------------------------------------------ menus }
+
+const
+  cmOpen = 1; cmPaths = 2; cmCopySel = 3; cmCopyChap = 4; cmQuit = 5; cmTheme = 6; cmBigger = 7; cmSmaller = 8;
+  cmFont = 9; cmKeys = 10; cmAbout = 11; cmFind = 12; cmSelAll = 13;
+
+procedure TMainForm.BuildMenus;
+begin
+  SetLength(MenuTitles, 4);
+  MenuTitles[0] := 'File';
+  MenuTitles[1] := 'View';
+  MenuTitles[2] := 'Settings';
+  MenuTitles[3] := 'Help';
+  SetLength(MenuRects, 4);
+end;
+
+procedure TMainForm.MenuBarRedraw(Sender: TObject; Bitmap: TBGRABitmap);
+var
+  i, X, W: Integer;
+begin
+  Bitmap.Fill(Pix(Theme.Bg));
+  Bitmap.FontQuality := fqFineAntialiasing;
+  Bitmap.FontName := SansName;
+  Bitmap.FontHeight := S_(15);
+  Bitmap.FontStyle := [];
+  X := S_(10);
+  for i := 0 to High(MenuTitles) do
+    begin
+    W := Bitmap.TextSize(MenuTitles[i]).cx + S_(28);
+    MenuRects[i] := Rect(X, S_(4), X + W, MenuBar.Height - S_(2));
+    if (i = MenuOpen) or (i = MenuHover) then
+      Bitmap.FillRoundRectAntialias(X, S_(4), X + W, MenuBar.Height - S_(2), S_(8), S_(8), Pix(Theme.Hover));
+    Bitmap.TextOut(X + S_(14), S_(7), MenuTitles[i], Pix(Theme.Text));
+    X := X + W + S_(2);
+    end;
+end;
+
+procedure TMainForm.MenuBarMouseMove(Sender: TObject; Shift: TShiftState; X, Y: Integer);
+var
+  i, H: Integer;
+begin
+  H := -1;
+  for i := 0 to High(MenuRects) do
+    if PtInRect(MenuRects[i], Point(X, Y)) then H := i;
+  if H <> MenuHover then begin MenuHover := H; MenuBar.DiscardBitmap; end;
+  if (H >= 0) and (MenuOpen >= 0) and (H <> MenuOpen) then OpenMenu(H);
+end;
+
+procedure TMainForm.MenuBarMouseLeave(Sender: TObject);
+begin
+  if MenuHover <> -1 then begin MenuHover := -1; MenuBar.DiscardBitmap; end;
+end;
+
+procedure TMainForm.MenuBarMouseUp(Sender: TObject; Button: TMouseButton; Shift: TShiftState; X, Y: Integer);
+var
+  i: Integer;
+begin
+  for i := 0 to High(MenuRects) do
+    if PtInRect(MenuRects[i], Point(X, Y)) then
+      begin
+      if MenuOpen = i then CloseDrop else OpenMenu(i);
+      Exit;
+      end;
+  CloseDrop;
+end;
+
+procedure TMainForm.OpenMenu(Idx: Integer);
+
+  procedure Add(const Cap, Key: String; Cmd: Integer);
+  begin
+    SetLength(DropItems, Length(DropItems) + 1);
+    DropItems[High(DropItems)].Cap := Cap;
+    DropItems[High(DropItems)].Key := Key;
+    DropItems[High(DropItems)].Cmd := Cmd;
+    DropItems[High(DropItems)].Sep := Cmd = 0;
+  end;
+
+var
+  i, H: Integer;
+begin
+  SetLength(DropItems, 0);
+  case Idx of
+    0: begin
+       Add('Open module…', 'Ctrl+O', cmOpen);
+       Add('', '', 0);
+       Add('Copy selection', 'Ctrl+C', cmCopySel);
+       Add('Copy chapter with verse numbers', '', cmCopyChap);
+       Add('Select chapter text', 'Ctrl+A', cmSelAll);
+       Add('', '', 0);
+       Add('Quit', 'Ctrl+Q', cmQuit);
+       end;
+    1: begin
+       Add('Larger text', 'Ctrl++', cmBigger);
+       Add('Smaller text', 'Ctrl+−', cmSmaller);
+       Add('', '', 0);
+       if Dark then Add('Light theme', 'Ctrl+T', cmTheme) else Add('Dark theme', 'Ctrl+T', cmTheme);
+       Add('', '', 0);
+       Add('Find in the Bible', 'Ctrl+F', cmFind);
+       end;
+    2: begin
+       Add('Module folders…', '', cmPaths);
+       Add('Reading font…', '', cmFont);
+       end;
+    3: begin
+       Add('Keyboard shortcuts', '', cmKeys);
+       Add('About mkbible', '', cmAbout);
+       end;
+  end;
+  H := S_(10);
+  for i := 0 to High(DropItems) do if DropItems[i].Sep then Inc(H, S_(13)) else Inc(H, S_(34));
+  MenuOpen := Idx;
+  DropHover := -1;
+  DropEntered := False;
+  Drop.SetBounds(MenuRects[Idx].Left, MenuBar.Top + MenuBar.Height, S_(300), H);
+  Drop.Visible := True;
+  Drop.BringToFront;
+  Drop.DiscardBitmap;
+  MenuBar.DiscardBitmap;
+end;
+
+procedure TMainForm.CloseDrop;
+begin
+  if Drop.Visible then Drop.Visible := False;
+  if MenuOpen <> -1 then begin MenuOpen := -1; MenuBar.DiscardBitmap; end;
+end;
+
+procedure TMainForm.DropRedraw(Sender: TObject; Bitmap: TBGRABitmap);
+var
+  i, Y, IH: Integer;
+begin
+  Bitmap.Fill(Pix(Theme.Line));
+  Bitmap.FillRect(1, 1, Drop.Width - 1, Drop.Height - 1, Pix(Theme.Bg), dmSet);
+  Bitmap.FontQuality := fqFineAntialiasing;
+  Bitmap.FontName := SansName;
+  Y := S_(5);
+  for i := 0 to High(DropItems) do
+    begin
+    if DropItems[i].Sep then
+      begin
+      Bitmap.FillRect(S_(12), Y + S_(6), Drop.Width - S_(12), Y + S_(7), Pix(Theme.Line), dmSet);
+      Inc(Y, S_(13));
+      Continue;
+      end;
+    IH := S_(34);
+    if i = DropHover then Bitmap.FillRoundRectAntialias(S_(6), Y, Drop.Width - S_(6), Y + IH, S_(8), S_(8), Pix(Theme.AccentSoft));
+    Bitmap.FontHeight := S_(15);
+    Bitmap.FontStyle := [];
+    Bitmap.TextOut(S_(18), Y + S_(7), DropItems[i].Cap, Pix(Theme.Text));
+    if DropItems[i].Key <> '' then
+      begin
+      Bitmap.FontHeight := S_(13);
+      Bitmap.TextOut(Drop.Width - S_(18), Y + S_(9), DropItems[i].Key, Pix(Theme.Muted), taRightJustify);
+      end;
+    Inc(Y, IH);
+    end;
+end;
+
+procedure TMainForm.DropMouseMove(Sender: TObject; Shift: TShiftState; X, Y: Integer);
+var
+  i, YY, Hov: Integer;
+begin
+  DropEntered := True;
+  Hov := -1;
+  YY := S_(5);
+  for i := 0 to High(DropItems) do
+    if DropItems[i].Sep then Inc(YY, S_(13))
+    else
+      begin
+      if (Y >= YY) and (Y < YY + S_(34)) then Hov := i;
+      Inc(YY, S_(34));
+      end;
+  if Hov <> DropHover then begin DropHover := Hov; Drop.DiscardBitmap; end;
+end;
+
+procedure TMainForm.DropMouseLeave(Sender: TObject);
+begin
+  if DropEntered then CloseDrop;
+end;
+
+procedure TMainForm.DropMouseUp(Sender: TObject; Button: TMouseButton; Shift: TShiftState; X, Y: Integer);
+var
+  Cmd: Integer;
+begin
+  DropMouseMove(Sender, Shift, X, Y);
+  if DropHover < 0 then Exit;
+  Cmd := DropItems[DropHover].Cmd;
+  CloseDrop;
+  DoCommand(Cmd);
+end;
+
+procedure TMainForm.DoCommand(Cmd: Integer);
+var
+  i: Integer;
+begin
+  case Cmd of
+    cmOpen: ModClick(nil);
+    cmPaths: DoPaths;
+    cmCopySel: if HasSel then CopySelection else CopyClick(nil);
+    cmCopyChap: CopyClick(nil);
+    cmQuit: Close;
+    cmTheme: ThemeClick(nil);
+    cmBigger: BiggerClick(nil);
+    cmSmaller: SmallerClick(nil);
+    cmFont: DoFont;
+    cmFind: begin SearchEd.SetFocus; SearchEd.SelectAll; end;
+    cmSelAll:
+      if Length(Runs) > 0 then
+        begin
+        SelA.Run := 0; SelA.Ch := 0;
+        SelB.Run := High(Runs); SelB.Ch := UTF8Length(Runs[High(Runs)].T.Txt);
+        HasSel := True;
+        Redraw;
+        end;
+    cmKeys: InfoDialog(Self, Theme, 'Keyboard shortcuts',
+      'Left / Right: previous / next chapter' + LineEnding +
+      'Up / Down, Page Up / Page Down, Home / End: scroll' + LineEnding +
+      'Ctrl+F: search, Esc: clear the search or the selection' + LineEnding +
+      'Ctrl+O: open a module' + LineEnding +
+      'Ctrl+C: copy the selected text (the whole chapter when nothing is selected)' + LineEnding +
+      'Ctrl+A: select the chapter text' + LineEnding +
+      'Ctrl++ / Ctrl+−: text size' + LineEnding +
+      'Ctrl+T: light / dark theme' + LineEnding +
+      'Ctrl+Q: quit' + LineEnding + LineEnding +
+      'Select text with the mouse (drag, or double-click a word).');
+    cmAbout: InfoDialog(Self, Theme, 'About mkbible',
+      'mkbible, a simple Bible reader.' + LineEnding + LineEnding +
+      'Reads Sword, theWord, MySword, STEP, OSIS, Zefania, USFX, USFM, USX, Beblia, Unbound and verse-per-line ' +
+      'modules with the same Bible objects as the text mode reader.' + LineEnding + LineEnding +
+      'Drawn with BGRABitmap and BGRAControls on Lazarus.');
+  end;
+  i := 0;
+end;
+
+procedure TMainForm.DoPaths;
+var
+  P: TStringArray;
+begin
+  P := LoadPaths;
+  if PathsDialog(Self, Theme, P) then SavePaths(P);
+end;
+
+procedure TMainForm.DoFont;
+var
+  N: String;
+  Sz: Integer;
+begin
+  N := ReadFont;
+  Sz := FontBase;
+  if not FontDialog(Self, Theme, N, Sz,
+    'In the beginning God created the heavens and the earth. And the earth was waste and void; and darkness was upon the face of the deep.') then Exit;
+  ReadFont := N;
+  if (N <> '') and (Screen.Fonts.IndexOf(N) >= 0) then SerifName := N
+  else SerifName := PickFont(['Noto Serif', 'Georgia', 'Cambria', 'Liberation Serif', 'DejaVu Serif', 'Times New Roman'], 'serif');
+  FontBase := Max(13, Min(32, Sz));
+  FontSize := S_(FontBase);
+  PutSetting('gui.font', ReadFont);
+  ClearSel;
+  LayoutRuns;
+  Redraw;
+end;
+
+{ ------------------------------------------------------------------ selecting text in the reading pane }
+
+function TMainForm.MeasureRun(const R: TRun; const Txt: String): Integer;
+begin
+  case R.T.Kind of
+    tkNum: Result := MeasureText(Txt, Max(S_(10), Round(FontSize * 0.62)), True, False, False);
+    tkHead: Result := MeasureText(Txt, Max(S_(12), Round(FontSize * 0.85)), True, False, False);
+  else
+    Result := MeasureText(Txt, FontSize, R.T.Bold, R.T.Ital, not SearchMode);
+  end;
+end;
+
+procedure TMainForm.ClearSel;
+begin
+  HasSel := False;
+  Selecting := False;
+  Moved := False;
+end;
+
+{ the run and the character offset under a point (the nearest one when the point is outside the text) }
+function TMainForm.HitPos(X, Y: Integer): TSelPos;
+var
+  i, H, Line, First, Last, Len, K, WPrev, WK: Integer;
+  yy: Integer;
+begin
+  Result.Run := 0;
+  Result.Ch := 0;
+  if Length(Runs) = 0 then Exit;
+  H := Round(FontSize * 1.7);
+  yy := Y + ScrollY;
+  Line := -1;
+  for i := 0 to High(Runs) do
+    if Runs[i].Y <= yy then Line := Runs[i].Y else Break;
+  if Line < 0 then Line := Runs[0].Y;
+  First := -1; Last := -1;
+  for i := 0 to High(Runs) do
+    if Runs[i].Y = Line then begin if First < 0 then First := i; Last := i; end;
+  if First < 0 then Exit;
+  if X <= Runs[First].X then begin Result.Run := First; Exit; end;
+  for i := First to Last do
+    if (X < Runs[i].X + Runs[i].W) or (i = Last) or (X < Runs[i + 1].X) then
+      begin
+      Result.Run := i;
+      if X >= Runs[i].X + Runs[i].W then begin Result.Ch := UTF8Length(Runs[i].T.Txt); Exit; end;
+      Len := UTF8Length(Runs[i].T.Txt);
+      WPrev := 0;
+      for K := 1 to Len do
+        begin
+        WK := MeasureRun(Runs[i], UTF8Copy(Runs[i].T.Txt, 1, K));
+        if X - Runs[i].X < (WPrev + WK) div 2 then begin Result.Ch := K - 1; Exit; end;
+        WPrev := WK;
+        end;
+      Result.Ch := Len;
+      Exit;
+      end;
+end;
+
+procedure TMainForm.PaneMouseDown(Sender: TObject; Button: TMouseButton; Shift: TShiftState; X, Y: Integer);
+begin
+  CloseDrop;
+  if Pane.CanFocus then Pane.SetFocus;
+  if Button <> mbLeft then Exit;
+  Selecting := True;
+  Moved := False;
+  DownX := X; DownY := Y;
+  SelAnchor := HitPos(X, Y);
+  if HasSel then begin HasSel := False; Redraw; end;
+end;
+
+procedure TMainForm.PaneMouseMove(Sender: TObject; Shift: TShiftState; X, Y: Integer);
+var
+  P: TSelPos;
+begin
+  if not Selecting then Exit;
+  if (not Moved) and (Abs(X - DownX) < 4) and (Abs(Y - DownY) < 4) then Exit;
+  Moved := True;
+  if Y < 0 then Dec(ScrollY, S_(24)) else if Y > Pane.Height then Inc(ScrollY, S_(24));
+  ClampScroll;
+  P := HitPos(X, Y);
+  if (P.Run < SelAnchor.Run) or ((P.Run = SelAnchor.Run) and (P.Ch < SelAnchor.Ch)) then begin SelA := P; SelB := SelAnchor; end
+  else begin SelA := SelAnchor; SelB := P; end;
+  HasSel := (SelA.Run <> SelB.Run) or (SelA.Ch <> SelB.Ch);
+  Pane.DiscardBitmap;
+end;
+
+procedure TMainForm.PaneDblClick(Sender: TObject);
+var
+  P: TSelPos;
+begin
+  if SearchMode then Exit;
+  P := HitPos(DownX, DownY);
+  if (P.Run < 0) or (P.Run > High(Runs)) or (Runs[P.Run].T.Kind <> tkWord) then Exit;
+  SelA.Run := P.Run; SelA.Ch := 0;
+  SelB.Run := P.Run; SelB.Ch := UTF8Length(Runs[P.Run].T.Txt);
+  HasSel := True;
+  Moved := True;
+  Pane.DiscardBitmap;
+end;
+
+function TMainForm.SelText: String;
+var
+  i, C0, C1: Integer;
+  T: String;
+begin
+  Result := '';
+  if not HasSel then Exit;
+  for i := SelA.Run to Min(SelB.Run, High(Runs)) do
+    begin
+    if Runs[i].T.Kind = tkNum then Continue;
+    T := Runs[i].T.Txt;
+    C0 := 0;
+    C1 := UTF8Length(T);
+    if i = SelA.Run then C0 := SelA.Ch;
+    if i = SelB.Run then C1 := SelB.Ch;
+    T := UTF8Copy(T, C0 + 1, C1 - C0);
+    if T = '' then Continue;
+    if Result <> '' then
+      begin
+      if Runs[i].Hard or (Runs[i].T.Kind = tkHead) then Result := Result + LineEnding else Result := Result + ' ';
+      end;
+    Result := Result + T;
+    end;
+end;
+
+procedure TMainForm.CopySelection;
+begin
+  if HasSel then Clipboard.AsText := SelText;
 end;
 
 procedure TMainForm.SaveState;
