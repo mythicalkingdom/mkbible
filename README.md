@@ -58,6 +58,28 @@ Module paths are added, edited (Enter) and deleted (Delete key) under File, Modu
 changes the screen colors. Searches highlight the matches in the text. The configuration is kept in
 `~/.config/mkbible/mkbible.cfg`.
 
+## The mkbiblegui reader
+
+![mkbiblegui, light theme, with some text selected](docs/mkbiblegui.png)
+
+`mkbiblegui` is a graphical reader on the same Bible objects, drawn with BGRABitmap / BGRAControls on Lazarus: a
+sidebar of books with a chapter grid, a centered reading column in a serif face with red letters, italics, headings
+and small verse numbers, and light and dark themes. It opens the same modules as `mkbible` and shares its module
+folders (`~/.config/mkbible/mkbible.cfg`, `%APPDATA%\mkbible` on Windows).
+
+![mkbiblegui, dark theme, with a Strong's pop-up](docs/mkbiblegui-strongs.png)
+
+* **Select and copy:** drag across the text (or double-click a word) and press Ctrl+C or the Copy button; with nothing
+  selected the whole chapter is copied. Settings, Copy with verse numbers: on / off chooses whether numbers are included.
+* **Strong's numbers:** in a module that carries them (the Sword KJV with Strong's, for example) words with a number
+  are underlined under the mouse, and a click opens a pop-up with the Greek or Hebrew dictionary entry. The Sword
+  StrongsGreek / StrongsHebrew modules are found on the module folders, or pick others under Settings.
+* **Search** with highlighted hits (click one to go there), **text size** (A−, A+), a **reading font** chooser, **module
+  folders** editing, HiDPI scaling, and a menu bar (File, View, Settings, Help).
+
+Build it with `make gui` (needs Lazarus 4, BGRABitmap and BGRAControls, see `gui/README.md`). The Windows build has
+not been tried yet.
+
 ## License
 
 GNU General Public License, version 3: see `LICENSE`.

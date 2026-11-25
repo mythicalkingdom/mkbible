@@ -53,6 +53,7 @@ type
     DictG, DictH: AbsDictPtr;
     DictGSpec, DictHSpec: String;
     HoverRun: Integer;
+    CopyNums: Boolean;        { include verse numbers when copying }
     MenuTitles: array of String;
     MenuRects: array of TRect;
     MenuOpen, MenuHover, DropHover: Integer;
@@ -197,6 +198,7 @@ begin
   Dark := GetSetting('gui.dark', '0') = '1';
   Bib := nil;
   DictG := nil; DictH := nil; HoverRun := -1;
+  CopyNums := GetSetting('gui.copy.numbers', '1') = '1';
   CurBook := 1; CurChap := 1;
   SideHover := -1;
   BuildUI;
@@ -1215,7 +1217,8 @@ begin
   for V := 1 to Bib^.GetVerseCount(CurBook, CurChap) do
     begin
     Bib^.SetRef(CurBook, CurChap, V);
-    S := S + IntToStr(V) + ' ' + Bib^.GetVerseText + LineEnding;
+    if CopyNums then S := S + IntToStr(V) + ' ';
+    S := S + Bib^.GetVerseText + LineEnding;
     end;
   Clipboard.AsText := S;
 end;
@@ -1289,7 +1292,7 @@ end;
 
 const
   cmOpen = 1; cmPaths = 2; cmCopySel = 3; cmCopyChap = 4; cmQuit = 5; cmTheme = 6; cmBigger = 7; cmSmaller = 8;
-  cmFont = 9; cmStrongs = 14; cmKeys = 10; cmAbout = 11; cmFind = 12; cmSelAll = 13;
+  cmFont = 9; cmStrongs = 14; cmCopyNums = 15; cmKeys = 10; cmAbout = 11; cmFind = 12; cmSelAll = 13;
 
 procedure TMainForm.BuildMenus;
 begin
@@ -1371,7 +1374,7 @@ begin
        Add('Open module…', 'Ctrl+O', cmOpen);
        Add('', '', 0);
        Add('Copy (selection, else the chapter)', 'Ctrl+C', cmCopySel);
-       Add('Copy chapter with verse numbers', '', cmCopyChap);
+       Add('Copy the whole chapter', '', cmCopyChap);
        Add('Select chapter text', 'Ctrl+A', cmSelAll);
        Add('', '', 0);
        Add('Quit', 'Ctrl+Q', cmQuit);
@@ -1388,6 +1391,8 @@ begin
        Add('Module folders…', '', cmPaths);
        Add('Reading font…', '', cmFont);
        Add('Strong''s dictionaries…', '', cmStrongs);
+       Add('', '', 0);
+       if CopyNums then Add('Copy with verse numbers: on', '', cmCopyNums) else Add('Copy with verse numbers: off', '', cmCopyNums);
        end;
     3: begin
        Add('Keyboard shortcuts', '', cmKeys);
@@ -1491,6 +1496,11 @@ begin
     cmSmaller: SmallerClick(nil);
     cmFont: DoFont;
     cmStrongs: DoStrongsDict;
+    cmCopyNums:
+      begin
+      CopyNums := not CopyNums;
+      PutSetting('gui.copy.numbers', IntToStr(Ord(CopyNums)));
+      end;
     cmFind: begin SearchEd.SetFocus; SearchEd.SelectAll; end;
     cmSelAll:
       if Length(Runs) > 0 then
@@ -1672,7 +1682,7 @@ begin
   if not HasSel then Exit;
   for i := SelA.Run to Min(SelB.Run, High(Runs)) do
     begin
-    if Runs[i].T.Kind = tkNum then Continue;
+    if (Runs[i].T.Kind = tkNum) and ((not CopyNums) or ((i = SelA.Run) and (SelA.Ch > 0)) or ((i = SelB.Run) and (SelB.Ch = 0))) then Continue;
     T := Runs[i].T.Txt;
     C0 := 0;
     C1 := UTF8Length(T);

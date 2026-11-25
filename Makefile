@@ -2,7 +2,7 @@
 #   make              build everything into ./build (runs build.sh)
 #   make install      install the programs and documents   (PREFIX=/usr/local, DESTDIR for packaging)
 #   make uninstall    remove them again
-#   make gui          build the prototype GUI reader (needs Lazarus, BGRABitmap and BGRAControls, see gui/README.md)
+#   make gui          build the GUI reader (needs Lazarus, BGRABitmap and BGRAControls, see gui/README.md)
 #   make check        run the regression suite (needs Sword and sample files, see tools/regress.sh)
 #   make clean
 PREFIX  ?= /usr/local
