@@ -63,12 +63,16 @@ changes the screen colors. Searches highlight the matches in the text. The confi
 ![mkbiblegui, light theme, with some text selected](docs/mkbiblegui.png)
 
 `mkbiblegui` is a graphical reader on the same Bible objects, drawn with BGRABitmap / BGRAControls on Lazarus: a
-sidebar of books with a chapter grid, a centered reading column in a serif face with red letters, italics, headings
+a book and chapter picker (one pop-up with every book and chapter on screen), a centered reading column in a serif face with red letters, italics, headings
 and small verse numbers, and light and dark themes. It opens the same modules as `mkbible` and shares its module
 folders (`~/.config/mkbible/mkbible.cfg`, `%APPDATA%\mkbible` on Windows).
 
 ![mkbiblegui, dark theme, with a Strong's pop-up](docs/mkbiblegui-strongs.png)
 
+![mkbiblegui, the book and chapter picker](docs/mkbiblegui-goto.png)
+
+* **Go to:** the button next to the arrows (or Ctrl+G) opens every book as a grid, with the chapters of the chosen book
+  beside it: two clicks (one for single-chapter books) to any chapter.
 * **Select and copy:** drag across the text (or double-click a word) and press Ctrl+C or the Copy button; with nothing
   selected the whole chapter is copied. Settings, Copy with verse numbers: on / off chooses whether numbers are included.
 * **Strong's numbers:** in a module that carries them (the Sword KJV with Strong's, for example) words with a number

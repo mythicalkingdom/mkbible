@@ -1,7 +1,7 @@
 # mkbiblegui - a GUI Bible reader
 
-A simple, modern looking Bible reader on the same Bible objects as the text mode `mkbible`: a sidebar of books
-with a chapter grid, a centered reading column in a serif face (red letters, italics, verse numbers), search with
+A simple, modern looking Bible reader on the same Bible objects as the text mode `mkbible`: a pop-up book and
+chapter picker, a centered reading column in a serif face (red letters, italics, verse numbers), search with
 highlighted hits, Copy, text size, and light and dark themes.  Drawn with BGRABitmap / BGRAControls on Lazarus (LCL).
 
 Build (Lazarus 4 and its LCL for GTK2 are needed; GTK3 / Qt6 only need a different `--ws`):
@@ -23,6 +23,8 @@ note, or with the referenced verses (ranges such as John 1:1-3 included).  Optio
 
 Menus: File (open module, copy, select text, quit), View (text size, theme, find), Settings (module folders, reading
 font, Strong's dictionaries, copy with or without verse numbers), Help.  Text in the reading pane is selected with the mouse (drag, or double-click a word) and copied with Ctrl+C.
+Go to: the book button between the arrows (or Ctrl+G) opens a picker with every book as a grid and the chapters of the
+chosen book beside it.
 Keys: Left / Right chapter, Up / Down / PgUp / PgDn / Home / End scroll, Ctrl+F search, Ctrl+O modules, Ctrl+C copy.
 Options for trying it out: `--dark`, `--search WORD`, `--chapter BOOK CHAPTER`, `--menu N`, `--select`, `--dialog font|paths|keys`, `--strong`.
 

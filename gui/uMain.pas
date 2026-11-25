@@ -26,11 +26,6 @@ type
     T: TTok;
   end;
 
-  TSideRow = record
-    Kind: Integer;           { 0 testament label, 1 book, 2 chapter grid }
-    Book, Y, H: Integer;
-    Txt: String;
-  end;
 
   TMenuItemDef = record
     Cap, Key: String;
@@ -50,8 +45,12 @@ type
   TMainForm = class(TForm)
   private
     Top_: TPanel;
-    MenuBar, Drop, Side, Pane: TBGRAVirtualScreen;
-    BtnMod, BtnPrev, BtnNext, BtnCopy, BtnSmaller, BtnBigger: TBCButton;
+    MenuBar, Drop, LocBox, Pane: TBGRAVirtualScreen;
+    BtnMod, BtnPrev, BtnNext, BtnLoc, BtnCopy, BtnSmaller, BtnBigger: TBCButton;
+    LocBook, LocHoverB, LocHoverC: Integer;
+    LocEntered: Boolean;
+    LocBRects: array[1..66] of TRect;
+    LocCRects: array of TRect;
     DictG, DictH: AbsDictPtr;
     DictGSpec, DictHSpec: String;
     HoverRun: Integer;
@@ -78,15 +77,21 @@ type
     SerifName, SansName, ReadFont: String;
     Toks: array of TTok;
     Runs: array of TRun;
-    ContentH, ScrollY, SideScroll, SideHover: Integer;
+    ContentH, ScrollY: Integer;
     VerseY: array of Integer;
     SearchMode: Boolean;
     Hits: array of THit;
     HitTerm: String;
-    Rows: array of TSideRow;
     procedure ShowOnce(Sender: TObject);
     procedure StrongTimer(Sender: TObject);
     procedure NoteTimer(Sender: TObject);
+    procedure OpenLoc;
+    procedure LocRedraw(Sender: TObject; Bitmap: TBGRABitmap);
+    procedure LocMove(Sender: TObject; Shift: TShiftState; X, Y: Integer);
+    procedure LocLeave(Sender: TObject);
+    procedure LocUp(Sender: TObject; Button: TMouseButton; Shift: TShiftState; X, Y: Integer);
+    procedure LocLayout;
+    procedure LocClick(Sender: TObject);
     procedure BuildMenus;
     procedure OpenMenu(Idx: Integer);
     procedure CloseDrop;
@@ -121,13 +126,8 @@ type
     procedure ApplyTheme;
     procedure DoResize(Sender: TObject);
     procedure PaneRedraw(Sender: TObject; Bitmap: TBGRABitmap);
-    procedure SideRedraw(Sender: TObject; Bitmap: TBGRABitmap);
     procedure PaneWheel(Sender: TObject; Shift: TShiftState; WheelDelta: Integer; MousePos: TPoint; var Handled: Boolean);
-    procedure SideWheel(Sender: TObject; Shift: TShiftState; WheelDelta: Integer; MousePos: TPoint; var Handled: Boolean);
     procedure PaneMouseUp(Sender: TObject; Button: TMouseButton; Shift: TShiftState; X, Y: Integer);
-    procedure SideMouseUp(Sender: TObject; Button: TMouseButton; Shift: TShiftState; X, Y: Integer);
-    procedure SideMouseMove(Sender: TObject; Shift: TShiftState; X, Y: Integer);
-    procedure SideMouseLeave(Sender: TObject);
     procedure FormKey(Sender: TObject; var Key: Word; Shift: TShiftState);
     procedure SearchKey(Sender: TObject; var Key: Word; Shift: TShiftState);
     procedure SearchEnter(Sender: TObject);
@@ -149,7 +149,6 @@ type
     procedure AddVerseToks(const Raw: String; V: Integer);
     procedure AddPlainToks(const S: String; Ref: Integer);
     procedure LayoutRuns;
-    procedure BuildRows;
     procedure RunSearch(const Term: String);
     procedure ClampScroll;
     procedure Redraw;
@@ -165,7 +164,6 @@ var
 
 implementation
 
-function SideW: Integer; begin Result := S_(270); end;
 function TopH: Integer; begin Result := S_(60); end;
 function ColMax: Integer; begin Result := S_(700); end;
 
@@ -211,15 +209,13 @@ begin
   DictG := nil; DictH := nil; HoverRun := -1;
   CopyNums := GetSetting('gui.copy.numbers', '1') = '1';
   CurBook := 1; CurChap := 1;
-  SideHover := -1;
   BuildUI;
   ApplyTheme;
   Cur := GetSetting('gui.module', '');
   B := StrToIntDef(GetSetting('gui.book', '1'), 1);
   C := StrToIntDef(GetSetting('gui.chapter', '1'), 1);
   if Cur = '' then LoadLast(Cur, B, C);
-  if (Cur <> '') and OpenModule(Cur) then GoChapter(B, C)
-  else BuildRows;
+  if (Cur <> '') and OpenModule(Cur) then GoChapter(B, C);
   DoResize(nil);
   OnShow := @ShowOnce;
 end;
@@ -254,6 +250,7 @@ begin
   for B := 1 to ParamCount do
     begin
     if ParamStr(B) = '--dark' then begin Dark := True; ApplyTheme; end;
+    if ParamStr(B) = '--goto' then OpenLoc;
     if (ParamStr(B) = '--menu') and (B < ParamCount) then OpenMenu(StrToIntDef(ParamStr(B + 1), 0));
     if ParamStr(B) = '--select' then
       begin
@@ -336,15 +333,6 @@ begin
   MenuBar.OnMouseMove := @MenuBarMouseMove;
   MenuBar.OnMouseLeave := @MenuBarMouseLeave;
   MenuBar.OnMouseUp := @MenuBarMouseUp;
-  Side := TBGRAVirtualScreen.Create(Self);
-  Side.Parent := Self;
-  Side.Align := alLeft;
-  Side.Width := SideW;
-  Side.OnRedraw := @SideRedraw;
-  Side.OnMouseWheel := @SideWheel;
-  Side.OnMouseUp := @SideMouseUp;
-  Side.OnMouseMove := @SideMouseMove;
-  Side.OnMouseLeave := @SideMouseLeave;
   Pane := TBGRAVirtualScreen.Create(Self);
   Pane.Parent := Self;
   Pane.Align := alClient;
@@ -357,6 +345,7 @@ begin
   Pane.Cursor := crIBeam;
   BtnMod := MakeBtn('Open module', S_(230), @ModClick);
   BtnPrev := MakeBtn('‹', S_(40), @PrevClick);
+  BtnLoc := MakeBtn('Go to…', S_(220), @LocClick);
   BtnNext := MakeBtn('›', S_(40), @NextClick);
   BtnCopy := MakeBtn('Copy', S_(64), @CopyClick);
   BtnSmaller := MakeBtn('A−', S_(44), @SmallerClick);
@@ -383,6 +372,13 @@ begin
   Drop.OnMouseMove := @DropMouseMove;
   Drop.OnMouseLeave := @DropMouseLeave;
   Drop.OnMouseUp := @DropMouseUp;
+  LocBox := TBGRAVirtualScreen.Create(Self);
+  LocBox.Parent := Self;
+  LocBox.Visible := False;
+  LocBox.OnRedraw := @LocRedraw;
+  LocBox.OnMouseMove := @LocMove;
+  LocBox.OnMouseLeave := @LocLeave;
+  LocBox.OnMouseUp := @LocUp;
   MenuOpen := -1; MenuHover := -1; DropHover := -1;
   BuildMenus;
 end;
@@ -404,6 +400,7 @@ begin
   TitleLbl.Font.Color := Theme.Text;
   StyleButton(BtnMod, True);
   StyleButton(BtnPrev, False);
+  StyleButton(BtnLoc, False);
   StyleButton(BtnNext, False);
   StyleButton(BtnCopy, False);
   StyleButton(BtnSmaller, False);
@@ -417,10 +414,11 @@ var
 begin
   H := S_(36);
   Y := (TopH - H) div 2;
-  BtnMod.SetBounds(S_(16), Y, SideW - S_(32), H);
-  BtnPrev.SetBounds(SideW + S_(24), Y, S_(40), H);
-  BtnNext.SetBounds(SideW + S_(68), Y, S_(40), H);
-  TitleLbl.Left := SideW + S_(124);
+  BtnMod.SetBounds(S_(16), Y, S_(230), H);
+  BtnPrev.SetBounds(S_(16) + S_(230) + S_(20), Y, S_(40), H);
+  BtnLoc.SetBounds(BtnPrev.Left + S_(44), Y, S_(220), H);
+  BtnNext.SetBounds(BtnLoc.Left + S_(224), Y, S_(40), H);
+  TitleLbl.Left := BtnNext.Left + S_(56);
   TitleLbl.Top := (TopH - TitleLbl.Height) div 2;
   X := ClientWidth - S_(16);
   X := X - BtnBigger.Width; BtnBigger.SetBounds(X, Y, BtnBigger.Width, H);
@@ -447,10 +445,11 @@ begin
   ModName := Bib^.GetDescription;
   if ModName = '' then ModName := Bib^.GetName;
   if ModName = '' then ModName := ExtractFileName(Spec);
-  BtnMod.Caption := ModName;
+  if UTF8Length(ModName) > 25 then BtnMod.Caption := UTF8Copy(ModName, 1, 24) + '…' else BtnMod.Caption := ModName;
+  BtnMod.Hint := ModName;
+  BtnMod.ShowHint := True;
   SearchMode := False;
   CurBook := 1; CurChap := 1;
-  BuildRows;
   Result := True;
 end;
 
@@ -468,11 +467,8 @@ begin
   LoadChapterToks;
   LayoutRuns;
   ScrollY := 0;
-  TitleLbl.Caption := Bib^.GetBookName(B) + ' ' + IntToStr(C);
-  BuildRows;
-  for C := 0 to High(Rows) do
-    if (Rows[C].Kind = 1) and (Rows[C].Book = CurBook) then
-      SideScroll := Max(0, Rows[C].Y - S_(140));
+  TitleLbl.Caption := '';
+  BtnLoc.Caption := Bib^.GetBookName(B) + ' ' + IntToStr(C) + '  ▾';
   Redraw;
 end;
 
@@ -878,7 +874,7 @@ procedure TMainForm.Redraw;
 begin
   if MenuBar <> nil then MenuBar.DiscardBitmap;
   if Pane <> nil then Pane.DiscardBitmap;
-  if Side <> nil then Side.DiscardBitmap;
+  if LocBox <> nil then LocBox.DiscardBitmap;
 end;
 
 { ------------------------------------------------------------------ drawing }
@@ -983,97 +979,6 @@ begin
     end;
 end;
 
-procedure TMainForm.BuildRows;
-var
-  B, N, Y, G: Integer;
-
-  procedure Add(K, Bk, H: Integer; const T: String);
-  begin
-    SetLength(Rows, Length(Rows) + 1);
-    Rows[High(Rows)].Kind := K;
-    Rows[High(Rows)].Book := Bk;
-    Rows[High(Rows)].Y := Y;
-    Rows[High(Rows)].H := H;
-    Rows[High(Rows)].Txt := T;
-    Y := Y + H;
-  end;
-
-begin
-  SetLength(Rows, 0);
-  Y := S_(8);
-  if Bib = nil then Exit;
-  N := Bib^.GetBookCount;
-  if N > 66 then N := 66;
-  for B := 1 to N do
-    begin
-    if B = 1 then Add(0, 0, S_(34), 'OLD TESTAMENT');
-    if B = 40 then Add(0, 0, S_(40), 'NEW TESTAMENT');
-    Add(1, B, S_(34), Bib^.GetBookName(B));
-    if B = CurBook then
-      begin
-      G := (Bib^.GetChapterCount(B) + 5) div 6;
-      Add(2, B, G * S_(40) + S_(10), '');
-      end;
-    end;
-  Rows[0].Y := Rows[0].Y;
-end;
-
-procedure TMainForm.SideRedraw(Sender: TObject; Bitmap: TBGRABitmap);
-var
-  i, k, Cx, Cy, NCh: Integer;
-  R: TSideRow;
-  Y: Integer;
-  Sel: Boolean;
-begin
-  Bitmap.Fill(Pix(Theme.Panel));
-  Bitmap.FontQuality := fqFineAntialiasing;
-  Bitmap.FontName := SansName;
-  for i := 0 to High(Rows) do
-    begin
-    R := Rows[i];
-    Y := R.Y - SideScroll;
-    if (Y > Side.Height) or (Y + R.H < 0) then Continue;
-    case R.Kind of
-      0:
-        begin
-        Bitmap.FontHeight := S_(12);
-        Bitmap.FontStyle := [fsBold];
-        Bitmap.TextOut(S_(24), Y + R.H - S_(22), R.Txt, Pix(Theme.Muted));
-        end;
-      1:
-        begin
-        Sel := R.Book = CurBook;
-        if Sel then Bitmap.FillRoundRectAntialias(S_(12), Y + 2, Side.Width - S_(12), Y + R.H - 2, S_(9), S_(9), Pix(Theme.AccentSoft))
-        else if i = SideHover then Bitmap.FillRoundRectAntialias(S_(12), Y + 2, Side.Width - S_(12), Y + R.H - 2, S_(9), S_(9), Pix(Theme.Hover));
-        Bitmap.FontHeight := S_(16);
-        if Sel then begin Bitmap.FontStyle := [fsBold]; Bitmap.TextOut(S_(26), Y + S_(7), R.Txt, Pix(Theme.Accent)); end
-        else begin Bitmap.FontStyle := []; Bitmap.TextOut(S_(26), Y + S_(7), R.Txt, Pix(Theme.Text)); end;
-        end;
-      2:
-        begin
-        NCh := Bib^.GetChapterCount(R.Book);
-        Bitmap.FontHeight := S_(14);
-        Bitmap.FontStyle := [];
-        for k := 1 to NCh do
-          begin
-          Cx := S_(18) + ((k - 1) mod 6) * S_(40);
-          Cy := Y + S_(4) + ((k - 1) div 6) * S_(40);
-          if k = CurChap then
-            begin
-            Bitmap.FillRoundRectAntialias(Cx, Cy, Cx + S_(36), Cy + S_(36), S_(9), S_(9), Pix(Theme.Accent));
-            Bitmap.TextOut(Cx + S_(18), Cy + S_(9), IntToStr(k), Pix(Theme.Bg), taCenter);
-            end
-          else
-            begin
-            Bitmap.FillRoundRectAntialias(Cx, Cy, Cx + S_(36), Cy + S_(36), S_(9), S_(9), Pix(Theme.Bg));
-            Bitmap.TextOut(Cx + S_(18), Cy + S_(9), IntToStr(k), Pix(Theme.Text), taCenter);
-            end;
-          end;
-        end;
-    end;
-    end;
-end;
-
 { ------------------------------------------------------------------ input }
 
 procedure TMainForm.PaneWheel(Sender: TObject; Shift: TShiftState; WheelDelta: Integer; MousePos: TPoint; var Handled: Boolean);
@@ -1082,52 +987,6 @@ begin
   ClampScroll;
   Redraw;
   Handled := True;
-end;
-
-procedure TMainForm.SideWheel(Sender: TObject; Shift: TShiftState; WheelDelta: Integer; MousePos: TPoint; var Handled: Boolean);
-var
-  Total: Integer;
-begin
-  Total := S_(8);
-  if Length(Rows) > 0 then Total := Rows[High(Rows)].Y + Rows[High(Rows)].H + S_(16);
-  SideScroll := Max(0, Min(SideScroll - WheelDelta div 2, Total - Side.Height));
-  Side.DiscardBitmap;
-  Handled := True;
-end;
-
-procedure TMainForm.SideMouseMove(Sender: TObject; Shift: TShiftState; X, Y: Integer);
-var
-  i, H: Integer;
-begin
-  H := -1;
-  for i := 0 to High(Rows) do
-    if (Rows[i].Kind = 1) and (Y + SideScroll >= Rows[i].Y) and (Y + SideScroll < Rows[i].Y + Rows[i].H) then H := i;
-  if H <> SideHover then begin SideHover := H; Side.DiscardBitmap; end;
-end;
-
-procedure TMainForm.SideMouseLeave(Sender: TObject);
-begin
-  if SideHover <> -1 then begin SideHover := -1; Side.DiscardBitmap; end;
-end;
-
-procedure TMainForm.SideMouseUp(Sender: TObject; Button: TMouseButton; Shift: TShiftState; X, Y: Integer);
-var
-  i, k: Integer;
-  YY: Integer;
-begin
-  if Bib = nil then Exit;
-  YY := Y + SideScroll;
-  for i := 0 to High(Rows) do
-    if (YY >= Rows[i].Y) and (YY < Rows[i].Y + Rows[i].H) then
-      case Rows[i].Kind of
-        1: begin GoChapter(Rows[i].Book, 1); Exit; end;
-        2:
-          begin
-          k := ((YY - Rows[i].Y - S_(4)) div S_(40)) * 6 + (X - S_(18)) div S_(40) + 1;
-          if (X >= S_(18)) and (k >= 1) and (k <= Bib^.GetChapterCount(Rows[i].Book)) then GoChapter(Rows[i].Book, k);
-          Exit;
-          end;
-      end;
 end;
 
 procedure TMainForm.PaneMouseUp(Sender: TObject; Button: TMouseButton; Shift: TShiftState; X, Y: Integer);
@@ -1170,7 +1029,7 @@ begin
     VK_PRIOR: begin Dec(ScrollY, Pane.Height - S_(80)); ClampScroll; Redraw; Key := 0; end;
     VK_HOME: begin ScrollY := 0; Redraw; Key := 0; end;
     VK_END: begin ScrollY := ContentH; ClampScroll; Redraw; Key := 0; end;
-    VK_ESCAPE: if Drop.Visible then begin CloseDrop; Key := 0; end else if HasSel then begin ClearSel; Redraw; Key := 0; end else if SearchMode then begin GoChapter(CurBook, CurChap); Key := 0; end;
+    VK_ESCAPE: if LocBox.Visible then begin CloseDrop; Key := 0; end else if Drop.Visible then begin CloseDrop; Key := 0; end else if HasSel then begin ClearSel; Redraw; Key := 0; end else if SearchMode then begin GoChapter(CurBook, CurChap); Key := 0; end;
     VK_F: if ssCtrl in Shift then begin SearchEd.SetFocus; SearchEd.SelectAll; Key := 0; end;
     VK_C: if ssCtrl in Shift then begin CopyClick(nil); Key := 0; end;
     VK_A: if ssCtrl in Shift then begin DoCommand(13); Key := 0; end;
@@ -1178,6 +1037,7 @@ begin
     VK_T: if ssCtrl in Shift then begin ThemeClick(nil); Key := 0; end;
     VK_ADD, VK_OEM_PLUS: if ssCtrl in Shift then begin BiggerClick(nil); Key := 0; end;
     VK_SUBTRACT, VK_OEM_MINUS: if ssCtrl in Shift then begin SmallerClick(nil); Key := 0; end;
+    VK_G: if ssCtrl in Shift then begin OpenLoc; Key := 0; end;
     VK_O: if ssCtrl in Shift then begin ModClick(nil); Key := 0; end;
   end;
 end;
@@ -1368,11 +1228,176 @@ begin
 end;
 
 
+
+{ ------------------------------------------------------------------ the book and chapter picker }
+
+const
+  LocCols = 7;         { books across }
+  LocBookW = 88;
+  LocBookH = 38;
+  LocChapCols = 10;
+  LocChapW = 42;
+
+function LocW: Integer; begin Result := S_(16 + LocCols * LocBookW + 24 + LocChapCols * LocChapW + 16); end;
+function LocH: Integer; begin Result := S_(560); end;
+
+procedure TMainForm.LocClick(Sender: TObject);
+begin
+  OpenLoc;
+end;
+
+procedure TMainForm.LocLayout;
+var
+  i, n, rows, cw, ch, X0, Y0: Integer;
+begin
+  { the books: Old Testament, then New Testament, in a grid }
+  for i := 1 to 66 do
+    begin
+    if i <= 39 then
+      LocBRects[i] := Rect(S_(16 + ((i - 1) mod LocCols) * LocBookW), S_(44 + ((i - 1) div LocCols) * LocBookH),
+        S_(16 + ((i - 1) mod LocCols) * LocBookW + LocBookW - 4), S_(44 + ((i - 1) div LocCols) * LocBookH + LocBookH - 4))
+    else
+      LocBRects[i] := Rect(S_(16 + ((i - 40) mod LocCols) * LocBookW), S_(44 + 6 * LocBookH + 52 + ((i - 40) div LocCols) * LocBookH),
+        S_(16 + ((i - 40) mod LocCols) * LocBookW + LocBookW - 4), S_(44 + 6 * LocBookH + 52 + ((i - 40) div LocCols) * LocBookH + LocBookH - 4));
+    end;
+  { the chapters of the chosen book }
+  n := 0;
+  if (Bib <> nil) and (LocBook >= 1) then n := Bib^.GetChapterCount(LocBook);
+  SetLength(LocCRects, n);
+  if n = 0 then Exit;
+  rows := (n + LocChapCols - 1) div LocChapCols;
+  cw := S_(LocChapW);
+  ch := Min(S_(40), (LocH - S_(44) - S_(16)) div rows);
+  X0 := S_(16 + LocCols * LocBookW + 24);
+  Y0 := S_(44);
+  for i := 0 to n - 1 do
+    LocCRects[i] := Rect(X0 + (i mod LocChapCols) * cw, Y0 + (i div LocChapCols) * ch,
+      X0 + (i mod LocChapCols) * cw + cw - S_(4), Y0 + (i div LocChapCols) * ch + ch - S_(4));
+end;
+
+procedure TMainForm.OpenLoc;
+begin
+  if Bib = nil then Exit;
+  if LocBox.Visible then begin CloseDrop; Exit; end;
+  CloseDrop;
+  LocBook := CurBook;
+  LocHoverB := 0; LocHoverC := -1;
+  LocEntered := False;
+  LocLayout;
+  LocBox.SetBounds(Max(S_(8), Min(BtnPrev.Left, ClientWidth - LocW - S_(8))), MenuBar.Height + TopH, LocW, LocH);
+  LocBox.Visible := True;
+  LocBox.BringToFront;
+  LocBox.DiscardBitmap;
+end;
+
+procedure TMainForm.LocRedraw(Sender: TObject; Bitmap: TBGRABitmap);
+var
+  i, N: Integer;
+  R: TRect;
+  Fill, Txt: TColor;
+  Ab: String;
+begin
+  Bitmap.Fill(Pix(Theme.Line));
+  Bitmap.FillRect(1, 1, LocBox.Width - 1, LocBox.Height - 1, Pix(Theme.Bg), dmSet);
+  Bitmap.FontQuality := fqFineAntialiasing;
+  Bitmap.FontName := SansName;
+  Bitmap.FontStyle := [fsBold];
+  Bitmap.FontHeight := S_(12);
+  Bitmap.TextOut(S_(18), S_(16), 'OLD TESTAMENT', Pix(Theme.Muted));
+  Bitmap.TextOut(S_(18), S_(44 + 6 * LocBookH + 24), 'NEW TESTAMENT', Pix(Theme.Muted));
+  if Bib <> nil then
+    Bitmap.TextOut(S_(16 + LocCols * LocBookW + 24), S_(16), UpperCase(Bib^.GetBookName(LocBook)) + ' — CHAPTER', Pix(Theme.Muted));
+  { books: the full name is in the hint line at the bottom }
+  for i := 1 to Min(66, Bib^.GetBookCount) do
+    begin
+    R := LocBRects[i];
+    if i = LocBook then begin Fill := Theme.Accent; Txt := Theme.Bg; end
+    else if i = CurBook then begin Fill := Theme.AccentSoft; Txt := Theme.Accent; end
+    else if i = LocHoverB then begin Fill := Theme.Hover; Txt := Theme.Text; end
+    else begin Fill := Theme.Panel; Txt := Theme.Text; end;
+    Bitmap.FillRoundRectAntialias(R.Left, R.Top, R.Right, R.Bottom, S_(8), S_(8), Pix(Fill));
+    Ab := Bib^.GetBookAbbrev(i);
+    if Ab = '' then Ab := Copy(Bib^.GetBookName(i), 1, 4);
+    Bitmap.FontHeight := S_(15);
+    Bitmap.FontStyle := [];
+    Bitmap.TextOut((R.Left + R.Right - Bitmap.TextSize(Ab).cx) div 2, R.Top + S_(8), Ab, Pix(Txt));
+    end;
+  { chapters }
+  N := Length(LocCRects);
+  for i := 0 to N - 1 do
+    begin
+    R := LocCRects[i];
+    if (LocBook = CurBook) and (i + 1 = CurChap) then begin Fill := Theme.Accent; Txt := Theme.Bg; end
+    else if i = LocHoverC then begin Fill := Theme.AccentSoft; Txt := Theme.Accent; end
+    else begin Fill := Theme.Panel; Txt := Theme.Text; end;
+    Bitmap.FillRoundRectAntialias(R.Left, R.Top, R.Right, R.Bottom, S_(8), S_(8), Pix(Fill));
+    Bitmap.FontHeight := S_(14);
+    Bitmap.FontStyle := [];
+    Bitmap.TextOut((R.Left + R.Right - Bitmap.TextSize(IntToStr(i + 1)).cx) div 2, (R.Top + R.Bottom) div 2 - S_(9), IntToStr(i + 1), Pix(Txt));
+    end;
+  { the name of the book under the pointer }
+  if (LocHoverB >= 1) and (Bib <> nil) then
+    begin
+    Bitmap.FontHeight := S_(13);
+    Bitmap.FontStyle := [];
+    Bitmap.TextOut(S_(18), LocBox.Height - S_(30), Bib^.GetBookName(LocHoverB), Pix(Theme.Muted));
+    end;
+end;
+
+procedure TMainForm.LocMove(Sender: TObject; Shift: TShiftState; X, Y: Integer);
+var
+  i, HB, HC: Integer;
+  P: TPoint;
+begin
+  LocEntered := True;
+  P := Point(X, Y);
+  HB := 0; HC := -1;
+  for i := 1 to 66 do
+    if PtInRect(LocBRects[i], P) then HB := i;
+  for i := 0 to High(LocCRects) do
+    if PtInRect(LocCRects[i], P) then HC := i;
+  if (HB <> LocHoverB) or (HC <> LocHoverC) then
+    begin
+    LocHoverB := HB; LocHoverC := HC;
+    LocBox.DiscardBitmap;
+    end;
+end;
+
+procedure TMainForm.LocLeave(Sender: TObject);
+begin
+  if LocEntered then CloseDrop;
+end;
+
+procedure TMainForm.LocUp(Sender: TObject; Button: TMouseButton; Shift: TShiftState; X, Y: Integer);
+var
+  i: Integer;
+  P: TPoint;
+begin
+  if Bib = nil then Exit;
+  P := Point(X, Y);
+  for i := 1 to Min(66, Bib^.GetBookCount) do
+    if PtInRect(LocBRects[i], P) then
+      begin
+      if Bib^.GetChapterCount(i) = 1 then begin CloseDrop; GoChapter(i, 1); Exit; end;
+      LocBook := i;
+      LocLayout;
+      LocBox.DiscardBitmap;
+      Exit;
+      end;
+  for i := 0 to High(LocCRects) do
+    if PtInRect(LocCRects[i], P) then
+      begin
+      CloseDrop;
+      GoChapter(LocBook, i + 1);
+      Exit;
+      end;
+end;
+
 { ------------------------------------------------------------------ menus }
 
 const
   cmOpen = 1; cmPaths = 2; cmCopySel = 3; cmCopyChap = 4; cmQuit = 5; cmTheme = 6; cmBigger = 7; cmSmaller = 8;
-  cmFont = 9; cmStrongs = 14; cmCopyNums = 15; cmKeys = 10; cmAbout = 11; cmFind = 12; cmSelAll = 13;
+  cmFont = 9; cmStrongs = 14; cmCopyNums = 15; cmGoto = 16; cmKeys = 10; cmAbout = 11; cmFind = 12; cmSelAll = 13;
 
 procedure TMainForm.BuildMenus;
 begin
@@ -1465,6 +1490,7 @@ begin
        Add('', '', 0);
        if Dark then Add('Light theme', 'Ctrl+T', cmTheme) else Add('Dark theme', 'Ctrl+T', cmTheme);
        Add('', '', 0);
+       Add('Go to book and chapter…', 'Ctrl+G', cmGoto);
        Add('Find in the Bible', 'Ctrl+F', cmFind);
        end;
     2: begin
@@ -1493,6 +1519,7 @@ end;
 
 procedure TMainForm.CloseDrop;
 begin
+  if LocBox.Visible then LocBox.Visible := False;
   if Drop.Visible then Drop.Visible := False;
   if MenuOpen <> -1 then begin MenuOpen := -1; MenuBar.DiscardBitmap; end;
 end;
@@ -1576,6 +1603,7 @@ begin
     cmSmaller: SmallerClick(nil);
     cmFont: DoFont;
     cmStrongs: DoStrongsDict;
+    cmGoto: OpenLoc;
     cmCopyNums:
       begin
       CopyNums := not CopyNums;
@@ -1593,7 +1621,7 @@ begin
     cmKeys: InfoDialog(Self, Theme, 'Keyboard shortcuts',
       'Left / Right: previous / next chapter' + LineEnding +
       'Up / Down, Page Up / Page Down, Home / End: scroll' + LineEnding +
-      'Ctrl+F: search, Esc: clear the search or the selection' + LineEnding +
+      'Ctrl+G: go to a book and chapter' + LineEnding + 'Ctrl+F: search, Esc: clear the search or the selection' + LineEnding +
       'Ctrl+O: open a module' + LineEnding +
       'Ctrl+C: copy the selected text (the whole chapter when nothing is selected)' + LineEnding +
       'Ctrl+A: select the chapter text' + LineEnding +
