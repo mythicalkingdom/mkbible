@@ -1,0 +1,8 @@
+{ MKBib.Def - common compiler settings for the MK Bible units (Free Pascal) }
+{ Same dialect as the MK message units: Turbo Pascal objects.               }
+{$MODE TP}          { Turbo Pascal dialect: Object types, ShortString     }
+{$I-}               { No automatic I/O error halts - code checks IOResult }
+{$V-}               { Relaxed var-string checking                         }
+{$R-}               { No range checking                                   }
+{$Q-}               { No overflow checking                                }
+{$PACKRECORDS 1}    { Packed records, for on-disk layouts                 }
