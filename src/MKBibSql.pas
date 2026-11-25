@@ -7,7 +7,7 @@ Interface
 Uses MKBibMod, sqlite3dyn;
 
 Function SqlReady: Boolean;
-  {Loads the SQLite library at run time (libsqlite3.so.0 or libsqlite3.so); False if there is none}
+  {Loads the SQLite library at run time (libsqlite3.so.0 or libsqlite3.so; sqlite3.dll on Windows); False if there is none}
 Function SqlColText(St: psqlite3_stmt; Col: LongInt): BibStr;
 Function SqlColName(St: psqlite3_stmt; Col: LongInt): BibStr;
 Procedure SqlBindText(St: psqlite3_stmt; Idx: LongInt; Const S: BibStr);
@@ -31,7 +31,11 @@ Function SqlReady: Boolean;
   If Not Tried Then
     Begin
     Tried := True;
+{$IFDEF WINDOWS}
+    Ready := (InitialiseSQLite('sqlite3.dll') > 0) Or (InitialiseSQLite('winsqlite3.dll') > 0);
+{$ELSE}
     Ready := (InitialiseSQLite('libsqlite3.so.0') > 0) Or (InitialiseSQLite('libsqlite3.so') > 0);
+{$ENDIF}
     End;
   SqlReady := Ready;
   End;

@@ -86,6 +86,14 @@ folders (`~/.config/mkbible/mkbible.cfg`, `%APPDATA%\mkbible` on Windows).
 Build it with `make gui` (needs Lazarus 4, BGRABitmap and BGRAControls, see `gui/README.md`). The Windows build has
 not been tried yet.
 
+## Windows
+
+The converters and `mkbiblegui` are written to build on Windows (the text mode `mkbible` reader is Unix only). Install
+Lazarus (it brings the Free Pascal compiler), put `fpc` and `lazbuild` on the PATH, install the BGRABitmap and
+BGRAControls packages (see `gui\README.md`) and run `build.bat gui`; `build.bat` alone builds only the command line
+tools. MySword and theWord modules need a 64 bit `sqlite3.dll` next to the programs. The configuration is kept in
+`%APPDATA%\mkbible`. This has not been tried on a Windows machine yet.
+
 ## License
 
 GNU General Public License, version 3: see `LICENSE`.

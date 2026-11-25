@@ -32,4 +32,5 @@ Known limits: the module list is a native pop-up menu, and search is a plain cas
 
 HiDPI: every size is scaled by the screen's dpi / 96 (checked at 96 and 144 dpi).  Windows: nothing in the GUI is
 Unix specific, the config goes to `%APPDATA%\\mkbible`, and the font lists include Georgia and Segoe UI; build it
-there with Lazarus (`lazbuild --ws=win32 gui/mkbiblegui.lpi`).  That build has not been tried.
+there with `build.bat gui` (or `lazbuild --ws=win32 gui\mkbiblegui.lpi`).  MySword and theWord modules need `sqlite3.dll`
+next to the program.  That build has not been tried.

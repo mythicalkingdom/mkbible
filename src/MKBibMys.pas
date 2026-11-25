@@ -25,7 +25,7 @@ Unit MKBibMys;       {MySword Bible module object (SQLite, .bbl.mybible)}
   The text is stored exactly as given: write MySword markup (or plain text) if the module
   is for the MySword app.  Encrypted modules (Details.Encryption set) are not supported.
 
-  SQLite is loaded at run time (libsqlite3.so.0 or libsqlite3.so), so nothing is linked in.
+  SQLite is loaded at run time (libsqlite3.so.0 or libsqlite3.so; sqlite3.dll on Windows), so nothing is linked in.
 }
 
 Interface
@@ -98,7 +98,11 @@ Function InitSql: Boolean;
   If Not SqlTried Then
     Begin
     SqlTried := True;
+{$IFDEF WINDOWS}
+    SqlReady := (InitialiseSQLite('sqlite3.dll') > 0) Or (InitialiseSQLite('winsqlite3.dll') > 0);
+{$ELSE}
     SqlReady := (InitialiseSQLite('libsqlite3.so.0') > 0) Or (InitialiseSQLite('libsqlite3.so') > 0);
+{$ENDIF}
     End;
   InitSql := SqlReady;
   End;

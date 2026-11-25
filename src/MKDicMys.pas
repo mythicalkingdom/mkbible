@@ -15,7 +15,7 @@ Unit MKDicMys;       {MySword dictionary object (.dct.mybible, SQLite)}
   Reading   SetBibPath(file.dct.mybible), OpenBible (loads all entries)
   Writing   SetBibPath(directory | file), CreateBible(Name) makes <dir>/<Name>.dct.mybible, PutEntry...,
             CloseBible.  Text is stored as given: HTML (or plain text) for the MySword app.
-  SQLite is loaded at run time (libsqlite3.so.0 or libsqlite3.so).
+  SQLite is loaded at run time (libsqlite3.so.0 or libsqlite3.so; sqlite3.dll on Windows).
 }
 
 Interface
