@@ -7,14 +7,15 @@ uses
   Classes, SysUtils, StrUtils, Graphics, Forms, Controls, StdCtrls, ExtCtrls, Menus, Clipbrd, LCLType, Math, Dialogs,
   BGRABitmap, BGRABitmapTypes, BGRAVirtualScreen, BCButton, BCTypes,
   LazUTF8, Types, uTheme, uDialogs,
-  MKBibMod, MKBibAbs, MKBibAny, MKBibMkp, mkbiblecfg, mkbiblescan;
+  MKBibMod, MKBibAbs, MKBibAny, MKBibMkp, MKBibDic, MKDicAny, mkbiblecfg, mkbiblescan;
 
 type
   TTokKind = (tkWord, tkNum, tkHead, tkBreak, tkGap);
   TTok = record
     Txt: String;
     Kind: TTokKind;
-    Red, Ital, Bold, Mark: Boolean;
+    Red, Ital, Bold, Mark, Glue: Boolean;   { Glue: no space before it (punctuation right after a word) }
+    Strong: String;          { Strong's numbers of the word, 'H7225 G26' }
     Ref: Integer;            { verse number, or the index of a search hit }
   end;
   TRun = record
@@ -48,7 +49,10 @@ type
   private
     Top_: TPanel;
     MenuBar, Drop, Side, Pane: TBGRAVirtualScreen;
-    BtnMod, BtnPrev, BtnNext, BtnSmaller, BtnBigger: TBCButton;
+    BtnMod, BtnPrev, BtnNext, BtnCopy, BtnSmaller, BtnBigger: TBCButton;
+    DictG, DictH: AbsDictPtr;
+    DictGSpec, DictHSpec: String;
+    HoverRun: Integer;
     MenuTitles: array of String;
     MenuRects: array of TRect;
     MenuOpen, MenuHover, DropHover: Integer;
@@ -78,6 +82,7 @@ type
     HitTerm: String;
     Rows: array of TSideRow;
     procedure ShowOnce(Sender: TObject);
+    procedure StrongTimer(Sender: TObject);
     procedure BuildMenus;
     procedure OpenMenu(Idx: Integer);
     procedure CloseDrop;
@@ -99,6 +104,12 @@ type
     procedure ClearSel;
     procedure CopySelection;
     procedure DoPaths;
+    procedure DoStrongsDict;
+    procedure CopyChapter;
+    procedure ShowStrongs(RunIdx, SX, SY: Integer);
+    function RunAt(X, Y: Integer): Integer;
+    function AutoDict(const Feature: String): String;
+    function OpenDict(var D: AbsDictPtr; var Spec: String; const SettingKey, Feature: String): Boolean;
     procedure DoFont;
     procedure BuildUI;
     procedure StyleButton(B: TBCButton; Accent: Boolean);
@@ -185,6 +196,7 @@ begin
   FontSize := S_(FontBase);
   Dark := GetSetting('gui.dark', '0') = '1';
   Bib := nil;
+  DictG := nil; DictH := nil; HoverRun := -1;
   CurBook := 1; CurChap := 1;
   SideHover := -1;
   BuildUI;
@@ -199,9 +211,18 @@ begin
   OnShow := @ShowOnce;
 end;
 
+procedure TMainForm.StrongTimer(Sender: TObject);
+var
+  CC: Integer;
+begin
+  (Sender as TTimer).Enabled := False;
+  for CC := 0 to High(Runs) do
+    if Runs[CC].T.Strong <> '' then begin ShowStrongs(CC, Runs[CC].X, Runs[CC].Y - ScrollY + 40); Break; end;
+end;
+
 procedure TMainForm.ShowOnce(Sender: TObject);
 var
-  B: Integer;
+  B, CC: Integer;
 begin
   OnShow := nil;
   if Pane.CanFocus then Pane.SetFocus;
@@ -223,6 +244,12 @@ begin
         'paths': DoPaths;
         'keys': DoCommand(10);
       end;
+    if ParamStr(B) = '--strong' then
+      with TTimer.Create(Self) do
+        begin
+        Interval := 1500;
+        OnTimer := @StrongTimer;
+        end;
     if (ParamStr(B) = '--search') and (B < ParamCount) then begin Hinting := False; SearchEd.Font.Color := Theme.Text; SearchEd.Text := ParamStr(B + 1); RunSearch(ParamStr(B + 1)); end;
     if (ParamStr(B) = '--chapter') and (B + 1 < ParamCount) then GoChapter(StrToIntDef(ParamStr(B + 1), 1), StrToIntDef(ParamStr(B + 2), 1));
     end;
@@ -232,6 +259,8 @@ destructor TMainForm.Destroy;
 begin
   SaveState;
   if Bib <> nil then begin Bib^.CloseBible; FreeBibObj(Bib); end;
+  FreeDictObj(DictG);
+  FreeDictObj(DictH);
   Mz.Free;
   inherited Destroy;
 end;
@@ -298,6 +327,7 @@ begin
   BtnMod := MakeBtn('Open module', S_(230), @ModClick);
   BtnPrev := MakeBtn('‹', S_(40), @PrevClick);
   BtnNext := MakeBtn('›', S_(40), @NextClick);
+  BtnCopy := MakeBtn('Copy', S_(64), @CopyClick);
   BtnSmaller := MakeBtn('A−', S_(44), @SmallerClick);
   BtnBigger := MakeBtn('A+', S_(44), @BiggerClick);
   TitleLbl := TLabel.Create(Self);
@@ -344,6 +374,7 @@ begin
   StyleButton(BtnMod, True);
   StyleButton(BtnPrev, False);
   StyleButton(BtnNext, False);
+  StyleButton(BtnCopy, False);
   StyleButton(BtnSmaller, False);
   StyleButton(BtnBigger, False);
   Redraw;
@@ -363,6 +394,7 @@ begin
   X := ClientWidth - S_(16);
   X := X - BtnBigger.Width; BtnBigger.SetBounds(X, Y, BtnBigger.Width, H);
   X := X - S_(4) - BtnSmaller.Width; BtnSmaller.SetBounds(X, Y, BtnSmaller.Width, H);
+  X := X - S_(8) - BtnCopy.Width; BtnCopy.SetBounds(X, Y, BtnCopy.Width, H);
   X := X - S_(12) - SearchBox.Width; SearchBox.SetBounds(X, Y, SearchBox.Width, H);
   SearchEd.SetBounds(S_(14), (H - SearchEd.Height) div 2, SearchBox.Width - S_(28), SearchEd.Height);
   LayoutRuns;
@@ -401,6 +433,7 @@ begin
   CurBook := B; CurChap := C;
   SearchMode := False;
   ClearSel;
+  HoverRun := -1;
   LoadChapterToks;
   LayoutRuns;
   ScrollY := 0;
@@ -423,41 +456,111 @@ begin
     end;
 end;
 
-{ one verse as tokens: the module's markup is translated to the light VPL markup (<red>, <em>, <b>, <br>) first }
+{ one verse as tokens: the module's markup is translated to OSIS first, which carries everything we draw
+  (words of Jesus, italics, bold, headings, line breaks, Strong's numbers on words) }
 procedure TMainForm.AddVerseToks(const Raw: String; V: Integer);
 var
-  S: String;
-  i, j: Integer;
-  Red, Ital, Bold, AtStart: Boolean;
-  W: String;
+  S, W, Tg, Nm, Cur, TitleBuf: String;
+  i, j, k, NoteDepth: Integer;
+  Red, Ital, Bold, InTitle, NumDone, Closing, SelfClose, Gap, WGlue, LastWord: Boolean;
+  QStack: array of Boolean;
+  HStack: array of Char;
   T: TTok;
 
   procedure Push(K: TTokKind; const Txt: String);
   begin
     T.Txt := Txt; T.Kind := K; T.Red := Red; T.Ital := Ital; T.Bold := Bold; T.Mark := False; T.Ref := V;
+    T.Strong := Cur;
+    T.Glue := False;
     SetLength(Toks, Length(Toks) + 1);
     Toks[High(Toks)] := T;
   end;
 
+  procedure EnsureNum;
+  var
+    SaveCur: String;
+  begin
+    if NumDone then Exit;
+    NumDone := True;
+    SaveCur := Cur; Cur := '';
+    Push(tkNum, IntToStr(V));
+    Cur := SaveCur;
+  end;
+
   function Decode(const X: String): String;
   begin
-    Result := StringReplace(StringReplace(StringReplace(X, '&lt;', '<', [rfReplaceAll]), '&gt;', '>', [rfReplaceAll]),
-      '&amp;', '&', [rfReplaceAll]);
+    Result := StringReplace(StringReplace(StringReplace(StringReplace(X, '&lt;', '<', [rfReplaceAll]), '&gt;', '>', [rfReplaceAll]),
+      '&quot;', '"', [rfReplaceAll]), '&amp;', '&', [rfReplaceAll]);
+  end;
+
+  function AttrOf(const Tag, Name: String): String;
+  var
+    P, E: Integer;
+  begin
+    Result := '';
+    P := Pos(' ' + Name + '="', Tag);
+    if P = 0 then Exit;
+    P := P + Length(Name) + 3;
+    E := PosEx('"', Tag, P);
+    if E = 0 then E := Length(Tag) + 1;
+    Result := Copy(Tag, P, E - P);
+  end;
+
+  { lemma="strong:H07225 strong:H0853"  ->  'H7225 H853' }
+  function StrongsOf(const Lemma: String): String;
+  var
+    L, Item: String;
+    P, N: Integer;
+  begin
+    Result := '';
+    L := Lemma + ' ';
+    while L <> '' do
+      begin
+      P := Pos(' ', L);
+      Item := Copy(L, 1, P - 1);
+      Delete(L, 1, P);
+      if LowerCase(Copy(Item, 1, 7)) = 'strong:' then
+        begin
+        Item := Copy(Item, 8, Length(Item));
+        if (Item <> '') and (UpCase(Item[1]) in ['G', 'H']) then
+          begin
+          N := StrToIntDef(Copy(Item, 2, Length(Item)), -1);
+          if N >= 0 then
+            begin
+            if Result <> '' then Result := Result + ' ';
+            Result := Result + UpCase(Item[1]) + IntToStr(N);
+            end;
+          end;
+        end;
+      end;
   end;
 
   procedure Flush;
   begin
-    if W <> '' then
+    if W = '' then Exit;
+    if NoteDepth > 0 then begin W := ''; Exit; end;
+    if InTitle then
       begin
-      if AtStart and Bold then Push(tkHead, Decode(W)) else Push(tkWord, Decode(W));
-      W := '';
+      if TitleBuf <> '' then TitleBuf := TitleBuf + ' ';
+      TitleBuf := TitleBuf + Decode(W);
+      end
+    else
+      begin
+      EnsureNum;
+      Push(tkWord, Decode(W));
+      Toks[High(Toks)].Glue := WGlue and LastWord;
+      LastWord := True;
+      Gap := False;
       end;
+    W := '';
   end;
 
 begin
-  S := MkpTranslate(Raw, Bib^.GetMkpFormat, mfVPL, [moHeadings]);
-  Red := False; Ital := False; Bold := False; AtStart := True; W := '';
-  Push(tkNum, IntToStr(V));
+  S := MkpTranslate(Raw, Bib^.GetMkpFormat, mfOSIS, [moHeadings]);
+  Red := False; Ital := False; Bold := False; InTitle := False; NumDone := False; NoteDepth := 0;
+  Cur := ''; W := ''; TitleBuf := ''; Gap := True; WGlue := False; LastWord := False;
+  SetLength(QStack, 0);
+  SetLength(HStack, 0);
   i := 1;
   while i <= Length(S) do
     begin
@@ -466,32 +569,86 @@ begin
       j := PosEx('>', S, i);
       if j = 0 then j := Length(S);
       Flush;
-      case LowerCase(Copy(S, i + 1, j - i - 1)) of
-        'red': Red := True;
-        '/red': Red := False;
-        'em', 'i': Ital := True;
-        '/em', '/i': Ital := False;
-        'b': Bold := True;
-        '/b': begin Bold := False; end;
-        'br', 'br/': begin Push(tkBreak, ''); end;
-      end;
+      Tg := Copy(S, i + 1, j - i - 1);
+      SelfClose := (Tg <> '') and (Tg[Length(Tg)] = '/');
+      Closing := (Tg <> '') and (Tg[1] = '/');
+      k := 1;
+      if Closing then k := 2;
+      Nm := '';
+      while (k <= Length(Tg)) and not (Tg[k] in [' ', '/', '>']) do begin Nm := Nm + LowerCase(Tg[k]); Inc(k); end;
+      if Nm = 'w' then
+        begin
+        if Closing then Cur := '' else Cur := StrongsOf(AttrOf(Tg, 'lemma'));
+        end
+      else if Nm = 'q' then
+        begin
+        if Closing then
+          begin
+          if Length(QStack) > 0 then
+            begin
+            if QStack[High(QStack)] then Red := False;
+            SetLength(QStack, Length(QStack) - 1);
+            end;
+          end
+        else if not SelfClose then
+          begin
+          SetLength(QStack, Length(QStack) + 1);
+          QStack[High(QStack)] := Pos('Jesus', AttrOf(Tg, 'who')) > 0;
+          if QStack[High(QStack)] then Red := True;
+          end;
+        end
+      else if Nm = 'hi' then
+        begin
+        if Closing then
+          begin
+          if Length(HStack) > 0 then
+            begin
+            if HStack[High(HStack)] = 'i' then Ital := False else if HStack[High(HStack)] = 'b' then Bold := False;
+            SetLength(HStack, Length(HStack) - 1);
+            end;
+          end
+        else if not SelfClose then
+          begin
+          SetLength(HStack, Length(HStack) + 1);
+          if AttrOf(Tg, 'type') = 'bold' then begin HStack[High(HStack)] := 'b'; Bold := True; end
+          else begin HStack[High(HStack)] := 'i'; Ital := True; end;
+          end;
+        end
+      else if Nm = 'note' then
+        begin
+        if Closing then begin if NoteDepth > 0 then Dec(NoteDepth); end
+        else if not SelfClose then Inc(NoteDepth);
+        end
+      else if Nm = 'title' then
+        begin
+        if Closing then
+          begin
+          if Trim(TitleBuf) <> '' then Push(tkHead, Trim(TitleBuf));
+          InTitle := False; TitleBuf := '';
+          end
+        else begin InTitle := True; TitleBuf := ''; end;
+        end
+      else if (Nm = 'lb') or (Nm = 'p') then
+        begin
+        if (not Closing) then begin if NumDone then Push(tkBreak, ''); LastWord := False; Gap := True; end;
+        end;
       i := j + 1;
       end
     else if S[i] in [' ', #9, #10, #13] then
       begin
       Flush;
+      Gap := True;
       Inc(i);
       end
     else
       begin
-      if W = '' then
-        if not (Bold and AtStart) then AtStart := False;
+      if W = '' then WGlue := not Gap;
       W := W + S[i];
       Inc(i);
       end;
-    if (W <> '') and (not Bold) then AtStart := False;
     end;
   Flush;
+  EnsureNum;
 end;
 
 procedure TMainForm.AddPlainToks(const S: String; Ref: Integer);
@@ -504,7 +661,7 @@ var
   procedure Emit;
   begin
     if W = '' then Exit;
-    T.Txt := W; T.Kind := tkWord; T.Red := False; T.Ital := False; T.Bold := False; T.Ref := Ref;
+    T.Txt := W; T.Kind := tkWord; T.Red := False; T.Ital := False; T.Bold := False; T.Ref := Ref; T.Strong := ''; T.Glue := False;
     T.Mark := (HitTerm <> '') and (Pos(Term, LowerCase(W)) > 0);
     SetLength(Toks, Length(Toks) + 1);
     Toks[High(Toks)] := T;
@@ -599,7 +756,9 @@ begin
       tkWord:
         begin
         W := MeasureText(T.Txt, FontSize, T.Bold, T.Ital, not SearchMode);
-        if (X > 0) and NeedSp and (X + Sp + W > ColW) then NewLine(0)
+        if T.Glue and (X > 0) then
+          { punctuation stays with the word before it }
+        else if (X > 0) and NeedSp and (X + Sp + W > ColW) then NewLine(0)
         else if NeedSp then X := X + Sp;
         R.X := Left0 + X; R.Y := Y; R.W := W;
         AddRun(R);
@@ -729,6 +888,8 @@ begin
           Bitmap.FillRoundRectAntialias(R.X - S_(2), Y + S_(3), R.X + R.W + S_(2), Y + H - S_(3), S_(4), S_(4), Pix(Theme.Mark));
         if R.T.Red then C := Pix(Theme.Red) else C := Pix(Theme.Text);
         Bitmap.TextOut(R.X, Y, R.T.Txt, C);
+        if i = HoverRun then
+          Bitmap.FillRect(R.X, Y + H - S_(8), R.X + R.W, Y + H - S_(8) + Max(1, S_(2)), Pix(Theme.Accent), dmSet);
         end;
     end;
     end;
@@ -895,6 +1056,12 @@ begin
   Selecting := False;
   if Moved then Exit;
   if HasSel then begin ClearSel; Redraw; end;
+  if (not SearchMode) and (Button = mbLeft) then
+    begin
+    i := RunAt(X, Y);
+    if (i >= 0) and (Runs[i].T.Strong <> '') then ShowStrongs(i, X, Y);
+    Exit;
+    end;
   if not SearchMode then Exit;
   H := Round(FontSize * 1.7);
   for i := 0 to High(Runs) do
@@ -923,7 +1090,7 @@ begin
     VK_END: begin ScrollY := ContentH; ClampScroll; Redraw; Key := 0; end;
     VK_ESCAPE: if Drop.Visible then begin CloseDrop; Key := 0; end else if HasSel then begin ClearSel; Redraw; Key := 0; end else if SearchMode then begin GoChapter(CurBook, CurChap); Key := 0; end;
     VK_F: if ssCtrl in Shift then begin SearchEd.SetFocus; SearchEd.SelectAll; Key := 0; end;
-    VK_C: if ssCtrl in Shift then begin if HasSel then CopySelection else CopyClick(nil); Key := 0; end;
+    VK_C: if ssCtrl in Shift then begin CopyClick(nil); Key := 0; end;
     VK_A: if ssCtrl in Shift then begin DoCommand(13); Key := 0; end;
     VK_Q: if ssCtrl in Shift then begin Close; Key := 0; end;
     VK_T: if ssCtrl in Shift then begin ThemeClick(nil); Key := 0; end;
@@ -1006,7 +1173,7 @@ begin
     with Toks[High(Toks)] do
       begin
       Txt := Bib^.GetBookName(Hits[N].B) + ' ' + IntToStr(Hits[N].C) + ':' + IntToStr(Hits[N].V);
-      Kind := tkHead; Ref := N; Red := False; Ital := False; Bold := True; Mark := False;
+      Kind := tkHead; Ref := N; Red := False; Ital := False; Bold := True; Mark := False; Strong := ''; Glue := False;
       end;
     AddPlainToks(Hits[N].Txt, N);
     end;
@@ -1034,6 +1201,11 @@ begin
 end;
 
 procedure TMainForm.CopyClick(Sender: TObject);
+begin
+  if HasSel then CopySelection else CopyChapter;
+end;
+
+procedure TMainForm.CopyChapter;
 var
   S: String;
   V: Integer;
@@ -1117,7 +1289,7 @@ end;
 
 const
   cmOpen = 1; cmPaths = 2; cmCopySel = 3; cmCopyChap = 4; cmQuit = 5; cmTheme = 6; cmBigger = 7; cmSmaller = 8;
-  cmFont = 9; cmKeys = 10; cmAbout = 11; cmFind = 12; cmSelAll = 13;
+  cmFont = 9; cmStrongs = 14; cmKeys = 10; cmAbout = 11; cmFind = 12; cmSelAll = 13;
 
 procedure TMainForm.BuildMenus;
 begin
@@ -1198,7 +1370,7 @@ begin
     0: begin
        Add('Open module…', 'Ctrl+O', cmOpen);
        Add('', '', 0);
-       Add('Copy selection', 'Ctrl+C', cmCopySel);
+       Add('Copy (selection, else the chapter)', 'Ctrl+C', cmCopySel);
        Add('Copy chapter with verse numbers', '', cmCopyChap);
        Add('Select chapter text', 'Ctrl+A', cmSelAll);
        Add('', '', 0);
@@ -1215,6 +1387,7 @@ begin
     2: begin
        Add('Module folders…', '', cmPaths);
        Add('Reading font…', '', cmFont);
+       Add('Strong''s dictionaries…', '', cmStrongs);
        end;
     3: begin
        Add('Keyboard shortcuts', '', cmKeys);
@@ -1310,13 +1483,14 @@ begin
   case Cmd of
     cmOpen: ModClick(nil);
     cmPaths: DoPaths;
-    cmCopySel: if HasSel then CopySelection else CopyClick(nil);
-    cmCopyChap: CopyClick(nil);
+    cmCopySel: CopyClick(nil);
+    cmCopyChap: CopyChapter;
     cmQuit: Close;
     cmTheme: ThemeClick(nil);
     cmBigger: BiggerClick(nil);
     cmSmaller: SmallerClick(nil);
     cmFont: DoFont;
+    cmStrongs: DoStrongsDict;
     cmFind: begin SearchEd.SetFocus; SearchEd.SelectAll; end;
     cmSelAll:
       if Length(Runs) > 0 then
@@ -1446,8 +1620,24 @@ end;
 procedure TMainForm.PaneMouseMove(Sender: TObject; Shift: TShiftState; X, Y: Integer);
 var
   P: TSelPos;
+  R: Integer;
 begin
-  if not Selecting then Exit;
+  if not Selecting then
+    begin
+    R := -1;
+    if not SearchMode then
+      begin
+      R := RunAt(X, Y);
+      if (R >= 0) and (Runs[R].T.Strong = '') then R := -1;
+      end;
+    if R <> HoverRun then
+      begin
+      HoverRun := R;
+      if R >= 0 then Pane.Cursor := crHandPoint else Pane.Cursor := crIBeam;
+      Pane.DiscardBitmap;
+      end;
+    Exit;
+    end;
   if (not Moved) and (Abs(X - DownX) < 4) and (Abs(Y - DownY) < 4) then Exit;
   Moved := True;
   if Y < 0 then Dec(ScrollY, S_(24)) else if Y > Pane.Height then Inc(ScrollY, S_(24));
@@ -1492,7 +1682,8 @@ begin
     if T = '' then Continue;
     if Result <> '' then
       begin
-      if Runs[i].Hard or (Runs[i].T.Kind = tkHead) then Result := Result + LineEnding else Result := Result + ' ';
+      if Runs[i].Hard or (Runs[i].T.Kind = tkHead) then Result := Result + LineEnding
+      else if not Runs[i].T.Glue then Result := Result + ' ';
       end;
     Result := Result + T;
     end;
@@ -1501,6 +1692,131 @@ end;
 procedure TMainForm.CopySelection;
 begin
   if HasSel then Clipboard.AsText := SelText;
+end;
+
+
+{ ------------------------------------------------------------------ Strong's numbers }
+
+function TMainForm.RunAt(X, Y: Integer): Integer;
+var
+  i, H: Integer;
+begin
+  Result := -1;
+  H := Round(FontSize * 1.7);
+  for i := 0 to High(Runs) do
+    if (Runs[i].T.Kind = tkWord) and (X >= Runs[i].X) and (X <= Runs[i].X + Runs[i].W) and
+       (Y + ScrollY >= Runs[i].Y) and (Y + ScrollY < Runs[i].Y + H) then
+      begin
+      Result := i;
+      Exit;
+      end;
+end;
+
+{ the first Sword module on the module paths that has the Feature (GreekDef / HebrewDef) }
+function TMainForm.AutoDict(const Feature: String): String;
+var
+  Paths: TStringArray;
+  i: Integer;
+  SR: TSearchRec;
+  L: TStringList;
+  D: String;
+begin
+  Result := '';
+  Paths := LoadPaths;
+  L := TStringList.Create;
+  try
+    for i := 0 to High(Paths) do
+      begin
+      D := IncludeTrailingPathDelimiter(Paths[i]) + 'mods.d' + PathDelim;
+      if FindFirst(D + '*.conf', faAnyFile, SR) = 0 then
+        begin
+        repeat
+          L.LoadFromFile(D + SR.Name);
+          if Pos('feature=' + LowerCase(Feature), LowerCase(StringReplace(L.Text, ' ', '', [rfReplaceAll]))) > 0 then
+            begin
+            Result := D + SR.Name;
+            FindClose(SR);
+            Exit;
+            end;
+        until FindNext(SR) <> 0;
+        FindClose(SR);
+        end;
+      end;
+  finally
+    L.Free;
+  end;
+end;
+
+function TMainForm.OpenDict(var D: AbsDictPtr; var Spec: String; const SettingKey, Feature: String): Boolean;
+var
+  Use: String;
+begin
+  Result := D <> nil;
+  if Result then Exit;
+  Use := GetSetting(SettingKey, '');
+  if (Use = '') or not FileExists(Use) then Use := AutoDict(Feature);
+  if Use = '' then Exit;
+  D := NewDictObj(Use);
+  if D^.OpenBible <> bibOk then begin FreeDictObj(D); Exit; end;
+  Spec := Use;
+  Result := True;
+end;
+
+procedure TMainForm.ShowStrongs(RunIdx, SX, SY: Integer);
+var
+  Nums: TStringList;
+  i, Idx: Integer;
+  Body, One, Key: String;
+  D: AbsDictPtr;
+  Got: Boolean;
+  P: TPoint;
+begin
+  Nums := TStringList.Create;
+  try
+    Nums.Delimiter := ' ';
+    Nums.StrictDelimiter := True;
+    Nums.DelimitedText := Runs[RunIdx].T.Strong;
+    Body := '';
+    for i := 0 to Nums.Count - 1 do
+      begin
+      Key := Nums[i];
+      if Key = '' then Continue;
+      if UpCase(Key[1]) = 'G' then
+        begin Got := OpenDict(DictG, DictGSpec, 'gui.strongs.greek', 'GreekDef'); D := DictG; end
+      else
+        begin Got := OpenDict(DictH, DictHSpec, 'gui.strongs.hebrew', 'HebrewDef'); D := DictH; end;
+      if Body <> '' then Body := Body + LineEnding + LineEnding;
+      if Nums.Count > 1 then Body := Body + Key + LineEnding;
+      if not Got then
+        begin
+        if UpCase(Key[1]) = 'G' then One := 'No Strong''s Greek dictionary found.' else One := 'No Strong''s Hebrew dictionary found.';
+        Body := Body + One + LineEnding + 'Add the folder with the Sword StrongsGreek / StrongsHebrew modules under Settings, Module folders, or pick a dictionary under Settings, Strong''s dictionaries.';
+        Continue;
+        end;
+      Idx := D^.FindKey(Key);
+      if Idx = 0 then Body := Body + 'No entry for ' + Key + ' in this dictionary.'
+      else Body := Body + Trim(D^.GetEntryTextAt(Idx));
+      end;
+    P := Pane.ClientToScreen(Point(SX, SY));
+    StrongsPopup(Self, Theme, Runs[RunIdx].T.Strong + '   ' + Runs[RunIdx].T.Txt, Body, P);
+  finally
+    Nums.Free;
+  end;
+end;
+
+procedure TMainForm.DoStrongsDict;
+var
+  G, H: String;
+begin
+  G := GetSetting('gui.strongs.greek', '');
+  H := GetSetting('gui.strongs.hebrew', '');
+  if StrongsDialog(Self, Theme, G, H, AutoDict('GreekDef'), AutoDict('HebrewDef')) then
+    begin
+    PutSetting('gui.strongs.greek', G);
+    PutSetting('gui.strongs.hebrew', H);
+    FreeDictObj(DictG);
+    FreeDictObj(DictH);
+    end;
 end;
 
 procedure TMainForm.SaveState;

@@ -10,6 +10,8 @@ uses
 function PathsDialog(Owner: TForm; const Th: TTheme; var Paths: TStringArray): Boolean;
 function FontDialog(Owner: TForm; const Th: TTheme; var FontName: String; var FontSize: Integer; const SampleText: String): Boolean;
 procedure InfoDialog(Owner: TForm; const Th: TTheme; const Title, Text: String);
+function StrongsDialog(Owner: TForm; const Th: TTheme; var Greek, Hebrew: String; const GreekNow, HebrewNow: String): Boolean;
+procedure StrongsPopup(Owner: TForm; const Th: TTheme; const Title, Body: String; Pt: TPoint);
 
 implementation
 
@@ -24,6 +26,10 @@ type
     Size: Integer;
     Chosen: String;
     Fonts: TStringList;
+    GreekLbl, HebrewLbl: TLabel;
+    Greek, Hebrew: String;
+    WasActive: Boolean;
+    procedure PopupActivate(Sender: TObject);
     procedure ListDraw(Control: TWinControl; Index: Integer; ARect: TRect; State: TOwnerDrawState);
     procedure FilterChange(Sender: TObject);
     procedure PickChange(Sender: TObject);
@@ -34,6 +40,13 @@ type
     procedure EditClick(Sender: TObject);
     procedure RemoveClick(Sender: TObject);
     procedure UpdatePreview;
+    procedure ChooseGreek(Sender: TObject);
+    procedure ChooseHebrew(Sender: TObject);
+    procedure ChooseDict(var Spec: String; L: TLabel; const What: String);
+    procedure PopupKey(Sender: TObject; var Key: Word; Shift: TShiftState);
+    procedure PopupDeactivate(Sender: TObject);
+    procedure PopupClose(Sender: TObject; var CloseAction: TCloseAction);
+    procedure CloseClick(Sender: TObject);
     procedure OkClick(Sender: TObject);
     procedure CancelClick(Sender: TObject);
   end;
@@ -299,6 +312,163 @@ begin
   finally
     D.Free;
   end;
+end;
+
+
+{ ---------------------------------------------------------------- Strong's dictionaries }
+
+procedure TDlg.ChooseDict(var Spec: String; L: TLabel; const What: String);
+var
+  O: TOpenDialog;
+begin
+  O := TOpenDialog.Create(Self);
+  try
+    O.Title := 'Choose the Strong''s ' + What + ' dictionary (a Sword .conf, or a theWord / MySword dictionary file)';
+    if Spec <> '' then O.InitialDir := ExtractFilePath(Spec);
+    if O.Execute then
+      begin
+      Spec := O.FileName;
+      L.Caption := ExtractFileName(Spec);
+      end;
+  finally
+    O.Free;
+  end;
+end;
+
+procedure TDlg.ChooseGreek(Sender: TObject);
+begin
+  ChooseDict(Greek, GreekLbl, 'Greek');
+end;
+
+procedure TDlg.ChooseHebrew(Sender: TObject);
+begin
+  ChooseDict(Hebrew, HebrewLbl, 'Hebrew');
+end;
+
+function StrongsDialog(Owner: TForm; const Th: TTheme; var Greek, Hebrew: String; const GreekNow, HebrewNow: String): Boolean;
+var
+  D: TDlg;
+  function Shown(const Spec, Now_: String): String;
+  begin
+    if Spec <> '' then Result := ExtractFileName(Spec)
+    else if Now_ <> '' then Result := ExtractFileName(Now_) + ' (found automatically)'
+    else Result := 'none found';
+  end;
+begin
+  D := NewDlg(Owner, Th, 'Strong''s dictionaries', 560, 300);
+  try
+    D.Greek := Greek;
+    D.Hebrew := Hebrew;
+    MakeLabel(D, 'Strong''s dictionaries', 20, 16, 13, True, Th.Text);
+    MakeLabel(D, 'Used when you click a word that carries a Strong''s number.', 20, 44, 10, False, Th.Muted);
+    MakeLabel(D, 'Greek', 20, 92, 11, True, Th.Text);
+    D.GreekLbl := MakeLabel(D, Shown(Greek, GreekNow), 20, 116, 11, False, Th.Muted);
+    MakeBtn(D, 'Change…', 436, 98, 104, False, @D.ChooseGreek, 0);
+    MakeLabel(D, 'Hebrew', 20, 160, 11, True, Th.Text);
+    D.HebrewLbl := MakeLabel(D, Shown(Hebrew, HebrewNow), 20, 184, 11, False, Th.Muted);
+    MakeBtn(D, 'Change…', 436, 166, 104, False, @D.ChooseHebrew, 0);
+    MakeBtn(D, 'Cancel', 316, 250, 104, False, nil, mrCancel);
+    MakeBtn(D, 'OK', 436, 250, 104, True, nil, mrOK);
+    Result := D.ShowModal = mrOK;
+    if Result then begin Greek := D.Greek; Hebrew := D.Hebrew; end;
+  finally
+    D.Free;
+  end;
+end;
+
+{ ---------------------------------------------------------------- the Strong's pop-up window }
+
+var
+  CurPopup: TDlg = nil;
+
+procedure TDlg.PopupKey(Sender: TObject; var Key: Word; Shift: TShiftState);
+begin
+  if Key = VK_ESCAPE then Close;
+end;
+
+procedure TDlg.PopupActivate(Sender: TObject);
+begin
+  WasActive := True;
+end;
+
+procedure TDlg.PopupDeactivate(Sender: TObject);
+begin
+  if WasActive then Close;
+end;
+
+procedure TDlg.PopupClose(Sender: TObject; var CloseAction: TCloseAction);
+begin
+  CloseAction := caFree;
+  CurPopup := nil;
+end;
+
+procedure TDlg.CloseClick(Sender: TObject);
+begin
+  Close;
+end;
+
+procedure StrongsPopup(Owner: TForm; const Th: TTheme; const Title, Body: String; Pt: TPoint);
+var
+  F: TDlg;
+  Inner: TPanel;
+  M: TMemo;
+  B: TBCButton;
+  T: TLabel;
+  W, H: Integer;
+begin
+  if CurPopup <> nil then CurPopup.Close;
+  W := S_(440);
+  H := S_(300);
+  F := TDlg.CreateNew(Owner);
+  CurPopup := F;
+  F.Th := Th;
+  F.Scaled := False;
+  F.BorderStyle := bsNone;
+  F.FormStyle := fsStayOnTop;
+  F.Position := poDesigned;
+  F.Color := Th.Line;
+  F.Width := W;
+  F.Height := H;
+  F.Left := Max(0, Min(Pt.X + S_(12), Screen.Width - W - S_(8)));
+  F.Top := Max(0, Min(Pt.Y + S_(12), Screen.Height - H - S_(8)));
+  F.KeyPreview := True;
+  F.OnKeyDown := @F.PopupKey;
+  F.OnActivate := @F.PopupActivate;
+  F.OnDeactivate := @F.PopupDeactivate;
+  F.OnClose := @F.PopupClose;
+  Inner := TPanel.Create(F);
+  Inner.Parent := F;
+  Inner.BevelOuter := bvNone;
+  Inner.SetBounds(1, 1, W - 2, H - 2);
+  Inner.Color := Th.Bg;
+  T := TLabel.Create(F);
+  T.Parent := Inner;
+  T.Caption := Title;
+  T.Left := S_(18);
+  T.Top := S_(14);
+  T.Font.Name := Th.SansName;
+  T.Font.Size := 14;
+  T.Font.Style := [fsBold];
+  T.Font.Color := Th.Accent;
+  M := TMemo.Create(F);
+  M.Parent := Inner;
+  M.SetBounds(S_(18), S_(48), W - S_(38), H - S_(48) - S_(60));
+  M.ReadOnly := True;
+  M.BorderStyle := bsNone;
+  M.ScrollBars := ssAutoVertical;
+  M.WordWrap := True;
+  M.Color := Th.Bg;
+  M.Font.Name := Th.SansName;
+  M.Font.Size := 11;
+  M.Font.Color := Th.Text;
+  M.Text := Body;
+  B := TBCButton.Create(F);
+  B.Parent := Inner;
+  B.Caption := 'Close';
+  B.SetBounds(W - S_(18) - S_(84), H - S_(52), S_(84), S_(34));
+  StyleBtn(B, Th, False);
+  B.OnClick := @F.CloseClick;
+  F.Show;
 end;
 
 end.
