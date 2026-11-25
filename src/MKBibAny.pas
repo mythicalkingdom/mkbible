@@ -4,9 +4,9 @@ Unit MKBibAny;       {Pick the right Bible object for a path}
 
 Interface
 
-Uses MKBibMod, MKBibAbs, MKBibSwd, MKBibMys, MKBibStp, MKBibTwd, MKBibVpl, MKBibOsi, MKBibZef, MKBibUfx, MKBibUsf, MKBibUsx;
+Uses MKBibMod, MKBibAbs, MKBibSwd, MKBibMys, MKBibStp, MKBibTwd, MKBibVpl, MKBibOsi, MKBibZef, MKBibUfx, MKBibUsf, MKBibUsx, MKBibBeb, MKBibUnb;
 
-Type BibKind = (bkSword, bkMySword, bkStep, bkTheWord, bkVpl, bkOsis, bkZefania, bkUsfx, bkUsfm, bkUsx);
+Type BibKind = (bkSword, bkMySword, bkStep, bkTheWord, bkVpl, bkOsis, bkZefania, bkUsfx, bkUsfm, bkUsx, bkBeblia, bkUnbound);
 
 Function DetectBibKind(Path: String): BibKind;
   {.mybible file -> MySword;  .ont / .ot / .nt / .ontx file -> theWord;  .vpl file -> verse per line;
@@ -87,8 +87,12 @@ Function DetectBibKind(Path: String): BibKind;
     Head := Sniff(Path);
     If Pos('<osis', Head) > 0 Then Kind := bkOsis
     Else If Pos('<xmlbible', Head) > 0 Then Kind := bkZefania
-    Else If Pos('<usfx', Head) > 0 Then Kind := bkUsfx;
+    Else If Pos('<usfx', Head) > 0 Then Kind := bkUsfx
+    Else If (Pos('<bible', Head) > 0) And (Pos('<testament', Head) > 0) Then Kind := bkBeblia;
     End
+  Else If (Not DirectoryExists(Path)) And FileExists(Path) And (LowerCase(ExtractFileExt(Path)) = '.txt') And
+          ((Pos('#the unbound bible', Sniff(Path)) > 0) Or (Pos('#columns', Sniff(Path)) > 0)) Then
+    Kind := bkUnbound
   Else If DirectoryExists(Path) Then
     Begin
     If Path[Length(Path)] <> '/' Then Path := Path + '/';
@@ -121,6 +125,8 @@ Function NewBibObj(Path: String): AbsBibPtr;
     X: UsfxBibPtr;
     U: UsfmBibPtr;
     Y: UsxBibPtr;
+    Be: BebliaBibPtr;
+    Ub: UnboundBibPtr;
   Begin
   Case DetectBibKind(Path) Of
     bkMySword: Begin New(M, Init); NewBibObj := M; End;
@@ -132,6 +138,8 @@ Function NewBibObj(Path: String): AbsBibPtr;
     bkUsfx: Begin New(X, Init); NewBibObj := X; End;
     bkUsfm: Begin New(U, Init); NewBibObj := U; End;
     bkUsx: Begin New(Y, Init); NewBibObj := Y; End;
+    bkBeblia: Begin New(Be, Init); NewBibObj := Be; End;
+    bkUnbound: Begin New(Ub, Init); NewBibObj := Ub; End;
     Else Begin New(S, Init); NewBibObj := S; End;
     End;
   NewBibObj^.SetBibPath(Path);

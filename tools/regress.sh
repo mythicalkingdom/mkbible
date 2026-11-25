@@ -230,6 +230,23 @@ if [ -d $OF ]; then
       for f in $T/c_${t}_usx/*.usx; do python3 -c "import sys,xml.etree.ElementTree as E; E.parse(sys.argv[1])" $f || echo "NOT WELL-FORMED $f"; done
       echo "$t: the 66 files are well-formed XML"
     done
+    # Beblia XML and Unbound Bible: our writers read back, BibleMultiConverter's files, and Haggai XML
+    for t in beblia unbound; do
+      build/bibconv $OF/web_usfm -n c_$t -t $t -o $T -f > /dev/null 2>&1
+      build/bibdump $T/c_$t.$t.* -p > $T/c_out.txt 2>/dev/null
+      python3 tools/cmpdict.py $T/o_webu.txt $T/c_out.txt "USFM WEB -> $t: plain text" nospace
+    done
+    [ -f $T/c_beblia.beblia.xml ] && python3 -c "import sys,xml.etree.ElementTree as E; E.parse(sys.argv[1])" $T/c_beblia.beblia.xml && echo "beblia: well-formed XML"
+    for f in web_beblia.xml web_unbound.txt; do
+      if [ -f $OF/$f ]; then
+        build/bibdump $OF/$f -p > $T/c_out.txt
+        python3 tools/cmpdict.py $T/o_webu.txt $T/c_out.txt "$f (from BibleMultiConverter) vs its USFM source, blanks ignored" nospace 30900
+      fi
+    done
+    if [ -f $OF/asv_haggai.xml ]; then
+      build/bibdump $OF/eng-asv.zefania.xml -p > $T/c_a1.txt; build/bibdump $OF/asv_haggai.xml -p > $T/c_a2.txt
+      python3 tools/cmpdict.py $T/c_a1.txt $T/c_a2.txt "Haggai XML vs the Zefania file it was made from"
+    fi
     for d in web_usx web_usx3; do
       if [ -d $OF/$d ]; then
         build/bibdump $OF/$d -p > $T/c_out.txt

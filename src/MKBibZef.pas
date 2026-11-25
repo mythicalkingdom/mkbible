@@ -3,7 +3,7 @@ Unit MKBibZef;       {Zefania XML Bible object (.xml with <XMLBIBLE>)}
 {$I MKBib.Def}
 
 {
-  MKBibZef - descendant of MemBibObj for Zefania XML Bible modules (zef2005): a file with
+  MKBibZef - descendant of MemBibObj for Zefania XML Bible modules (zef2005; Haggai XML, which writes <VERSE>, is read too): a file with
 
       <XMLBIBLE biblename="American Standard Version" ...>
         <INFORMATION> <title> <identifier> <language> <rights> <description> ... </INFORMATION>
@@ -52,6 +52,7 @@ Function ZefaniaBibObj.LoadSource: Boolean;
     T, U, Tag, Gap, Cap, Txt, DescS, Id, VStr: BibStr;
     P, E, BE, CE, V, VE, Q, Q2, Gp: LongInt;
     Bk, Ch, Vs, Code, N: LongInt;
+    EndTag: String;
   Begin
   LoadSource := False;
   If Not ReadWholeFile(PathSpec, T) Then Exit;
@@ -99,7 +100,10 @@ Function ZefaniaBibObj.LoadSource: Boolean;
         Begin
         V := PosEx('<VERS', U, V);
         If (V = 0) Or (V > CE) Then Break;
-        If Not (U[V + 5] In [' ', '>', '/']) Then
+        { Haggai XML (the Free Scriptures flavour of Zefania) calls it <VERSE> }
+        If (U[V + 5] = 'E') And (U[V + 6] In [' ', '>', '/']) Then EndTag := '</VERSE>'
+        Else If U[V + 5] In [' ', '>', '/'] Then EndTag := '</VERS>'
+        Else
           Begin
           Inc(V);
           Continue;
@@ -121,10 +125,10 @@ Function ZefaniaBibObj.LoadSource: Boolean;
           End
         Else
           Begin
-          VE := PosEx('</VERS>', U, Q2);
+          VE := PosEx(EndTag, U, Q2);
           If (VE = 0) Or (VE > CE) Then VE := CE;
           Txt := Copy(T, Q2 + 1, VE - Q2 - 1);
-          VE := VE + 6;
+          VE := VE + Length(EndTag) - 1;
           End;
         If Cap <> '' Then Txt := Cap + Txt;
         If (Bk > 0) And (Ch > 0) And (Vs > 0) Then StoreVerse(Bk, Ch, Vs, Txt) Else Inc(Skipped);

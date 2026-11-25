@@ -7,7 +7,7 @@ tools built on them, and `mkbible`, a text mode Bible reader.
 
 | Kind | Formats |
 |---|---|
-| Bibles | Sword (zText, RawText, LZSS / ZIP / bzip2, ciphers; no Apocrypha books, see License), MySword, theWord, STEP / QuickVerse, verse-per-line `.vpl`, OSIS, Zefania XML, USFX, USFM and USX 2 / 3 (folder or zip) |
+| Bibles | Sword (zText, RawText, LZSS / ZIP / bzip2, ciphers; no Apocrypha books, see License), MySword, theWord, STEP / QuickVerse, verse-per-line `.vpl`, OSIS, Zefania XML (and Haggai XML), USFX, USFM and USX 2 / 3 (folder or zip), Beblia XML, Unbound Bible text |
 | Dictionaries | Sword zLD, MySword `.dct.mybible`, theWord `.dct.twm` |
 | Commentaries, books | theWord `.cmt.twm`, `.gbk.twm` |
 
@@ -38,7 +38,7 @@ left alone (vendor-protected libraries) are not part of this repository.
 
 `mkbible [module]` is a small text mode Bible reader for a terminal (about 80x24 or larger). The menu bar and a
 key hint line are always visible, so nothing has to be remembered. It reads any module the library can open:
-Sword, MySword, theWord, STEP, VPL, OSIS, Zefania, USFX, USFM and USX. Without an argument it resumes at the
+Sword, MySword, theWord, STEP, VPL, OSIS, Zefania / Haggai, USFX, USFM, USX, Beblia and Unbound. Without an argument it resumes at the
 module, book and chapter where you left off.
 
 | Key | Action |

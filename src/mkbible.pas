@@ -5,7 +5,7 @@ program mkbible;
 
   usage: mkbible [module]
     module   a Sword module name or .conf, a MySword .mybible file, a theWord .ont/.ontx/.ot/.nt
-             file, a STEP directory, or a .vpl file.  With none, mkbible resumes where it left off.
+             file, a STEP directory, or a .vpl, OSIS, Zefania, Haggai, USFX, USFM, USX, Beblia or Unbound file.  With none, mkbible resumes where it left off.
 
   Left/Right        previous / next chapter
   Up/Down/PgUp/PgDn/Home/End   scroll the chapter text
@@ -324,7 +324,7 @@ end;
 
 const
   SkipExts = '.jpg.jpeg.png.gif.bmp.css.ini.cfg.ico.ttf.ttc.otf.woff.html.htm.exe.dll.so' +
-             '.log.txt.md.json.pdf.doc.docx.db.sqlite.idx3.bak.tmp';
+             '.log.md.json.pdf.doc.docx.db.sqlite.idx3.bak.tmp';
 
 procedure ScanDir(const Dir: String; var Arr: TModEntries);
 var

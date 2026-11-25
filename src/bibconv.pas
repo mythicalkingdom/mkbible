@@ -4,7 +4,7 @@ Program BibConv;
   usage: bibconv <source> [-n <NewName>] [options]
      <source>   a Sword module name / .conf file / Sword directory, or a .bbl.mybible file
      -n <name>  name of the new module (default: the source's name)
-     -t zip|lzss|raw|mysword|theword|vpl|osis|zefania|usfx|usfm|usx|usx2   target format (usx writes USX 3)           default zip
+     -t zip|lzss|raw|mysword|theword|vpl|osis|zefania|usfx|usfm|usx|usx2|beblia|unbound   target format (usx writes USX 3)           default zip
      -o <dir>   output root (Sword: mods.d/ + modules/;  MySword: the .bbl.mybible lands here)   default .
      -b book|chapter|verse     Sword zText block type              default book
      -m auto|same|plain|osis|thml|gbf|mysword|theword|vpl|zefania|usfx|usfm|usx    markup of the text in the new module   default auto
@@ -32,7 +32,7 @@ Program BibConv;
 {$MODE OBJFPC}{$H+}
 {$I-}
 
-Uses SysUtils, MKBibVrs, MKBibMod, MKBibAbs, MKBibSwd, MKBibMys, MKBibTwd, MKBibVpl, MKBibOsi, MKBibZef, MKBibUfx, MKBibUsf, MKBibUsx,
+Uses SysUtils, MKBibVrs, MKBibMod, MKBibAbs, MKBibSwd, MKBibMys, MKBibTwd, MKBibVpl, MKBibOsi, MKBibZef, MKBibUfx, MKBibUsf, MKBibUsx, MKBibBeb, MKBibUnb,
   MKBibAny, MKBibMkp;
 
 Var
@@ -50,6 +50,8 @@ Var
   UfxD: UsfxBibObj;
   UsfD: UsfmBibObj;
   UsxD: UsxBibObj;
+  BebD: BebliaBibObj;
+  UnbD: UnboundBibObj;
   DstMem: Boolean;
   MemFile: String;
   OwnMk: BibMarkup;
@@ -157,7 +159,8 @@ For I := 1 To Length(NewName) Do
 DstMys := Tg = 'mysword';
 DstTw := Tg = 'theword';
 DstVpl := Tg = 'vpl';
-DstMem := (Tg = 'osis') Or (Tg = 'zefania') Or (Tg = 'usfx') Or (Tg = 'usfm') Or (Tg = 'usx') Or (Tg = 'usx2');
+DstMem := (Tg = 'osis') Or (Tg = 'zefania') Or (Tg = 'usfx') Or (Tg = 'usfm') Or (Tg = 'usx') Or (Tg = 'usx2') Or
+         (Tg = 'beblia') Or (Tg = 'unbound');
 DstFlat := DstMys Or DstTw Or DstVpl Or DstMem;    {one file / folder, KJV structure, no Apocrypha}
 If (Tg <> 'zip') And (Tg <> 'lzss') And (Tg <> 'raw') And (Not DstFlat) Then Usage;
 If DstMys Then Begin MysD.Init; Dst := @MysD; End
@@ -173,6 +176,8 @@ Else If (Tg = 'usx') Or (Tg = 'usx2') Then
   If Tg = 'usx2' Then UsxD.Ver := 2;
   Dst := @UsxD;
   End
+Else If Tg = 'beblia' Then Begin BebD.Init; Dst := @BebD; End
+Else If Tg = 'unbound' Then Begin UnbD.Init; Dst := @UnbD; End
 Else Begin SwdD.Init; Dst := @SwdD; End;
 Sys := Src^.VSys;
 If DstFlat And (Sys In [vsNRSV, vsNRSVA]) Then
@@ -197,7 +202,7 @@ If Mk = 'auto' Then
   If DstMys Then Mk := 'mysword'
   Else If DstTw Then Mk := 'theword'
   Else If DstVpl Then Mk := 'vpl'
-  Else If DstMem Then Begin If Tg = 'usx2' Then Mk := 'usx' Else Mk := Tg; End
+  Else If DstMem Then Begin If Tg = 'usx2' Then Mk := 'usx' Else If (Tg = 'beblia') Or (Tg = 'unbound') Then Mk := 'plain' Else Mk := Tg; End
   Else If Src^.GetMarkup In [bmOSIS, bmThML, bmGBF] Then Mk := 'same'
   Else Mk := 'osis';
   End;
@@ -383,7 +388,9 @@ If Tg = 'osis' Then MemFile := OsiD.FileName
 Else If Tg = 'zefania' Then MemFile := ZefD.FileName
 Else If Tg = 'usfx' Then MemFile := UfxD.FileName
 Else If Tg = 'usfm' Then MemFile := UsfD.FileName
-Else If (Tg = 'usx') Or (Tg = 'usx2') Then MemFile := UsxD.FileName;
+Else If (Tg = 'usx') Or (Tg = 'usx2') Then MemFile := UsxD.FileName
+Else If Tg = 'beblia' Then MemFile := BebD.FileName
+Else If Tg = 'unbound' Then MemFile := UnbD.FileName;
 If DstMem Then WriteLn('module: ', MemFile)
 Else If DstVpl Then WriteLn('module: ', VplD.FileName)
 Else If DstTw Then WriteLn('module: ', TwdD.FileName)
