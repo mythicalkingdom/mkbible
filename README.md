@@ -32,6 +32,32 @@ regression suite.
 Needs Free Pascal 3.2 and `libsqlite3` at run time (MySword, theWord).  `NOTES` on formats that were looked at and
 left alone (vendor-protected libraries) are not part of this repository.
 
+## The mkbible reader
+
+![mkbible showing Genesis 1](docs/mkbible.png)
+
+`mkbible [module]` is a small text mode Bible reader for a terminal (about 80x24 or larger). The menu bar and a
+key hint line are always visible, so nothing has to be remembered. It reads any module the library can open:
+Sword, MySword, theWord, STEP, VPL, OSIS, Zefania, USFX, USFM and USX. Without an argument it resumes at the
+module, book and chapter where you left off.
+
+| Key | Action |
+| --- | --- |
+| Left / Right | previous / next chapter |
+| Up / Down / PgUp / PgDn / Home / End | scroll the chapter |
+| Alt+B | pick a book (all 66), then a chapter |
+| Alt+O | pick a module from the configured module paths |
+| Alt+C | copy the chapter to the system clipboard, to paste into other programs |
+| `/` | search the whole Bible, a testament or the current book; the hits are listed, plain text or regular expression |
+| n / N (F3 / Shift+F3) | next / previous hit |
+| F10 or Esc, Alt+letter | the menu bar (File, Go, Search, Edit, Settings, Help) |
+| F1 | key list |
+| q | quit |
+
+Module paths are added, edited (Enter) and deleted (Delete key) under File, Module Paths..., and Settings, Colors...
+changes the screen colors. Searches highlight the matches in the text. The configuration is kept in
+`~/.config/mkbible/mkbible.cfg`.
+
 ## License
 
 GNU General Public License, version 3: see `LICENSE`.
