@@ -6,6 +6,8 @@ uses
   {$IFDEF UNIX}cthreads,{$ENDIF}
   Interfaces, Forms, bgracontrols, uMain;
 
+{$R *.res}
+
 begin
   RequireDerivedFormResource := False;
   Application.Initialize;
