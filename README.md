@@ -7,12 +7,12 @@ tools built on them, and `mkbible`, a text mode Bible reader.
 
 | Kind | Formats |
 |---|---|
-| Bibles | Sword (zText, RawText, LZSS / ZIP / bzip2, ciphers; no Apocrypha books, see License), MySword, theWord, STEP / QuickVerse, verse-per-line `.vpl`, OSIS, Zefania XML, USFX, USFM (folder or zip) |
+| Bibles | Sword (zText, RawText, LZSS / ZIP / bzip2, ciphers; no Apocrypha books, see License), MySword, theWord, STEP / QuickVerse, verse-per-line `.vpl`, OSIS, Zefania XML, USFX, USFM and USX 2 / 3 (folder or zip) |
 | Dictionaries | Sword zLD, MySword `.dct.mybible`, theWord `.dct.twm` |
 | Commentaries, books | theWord `.cmt.twm`, `.gbk.twm` |
 
 The markup translator (`MKBibMkp`) converts verse text between OSIS, ThML, GBF, MySword, theWord, STEP RTF,
-USFM, USFX, Zefania, HTML, TEI and plain text, keeping notes, headings, italics, words of Jesus, cross
+USFM, USFX, USX, Zefania, HTML, TEI and plain text, keeping notes, headings, italics, words of Jesus, cross
 references, Strong's numbers and morphology wherever the target can carry them.
 
 ## Programs (`./build.sh`, output in `build/`)
@@ -24,6 +24,10 @@ references, Strong's numbers and morphology wherever the target can carry them.
 * `tools/regress.sh` - the regression suite: checks against Sword's own `mod2imp`, `diatheke` and
   `vpl2mod`, independent Python readers, and round trips.  Checks that need sample files on the
   author's machine are skipped when the files are not there.
+
+Build with `make` (or `./build.sh`); `make install` puts `mkbible`, `bibconv`, `dictconv`, `bibimp`, `bibdump` and `bibmk` in
+`$(PREFIX)/bin` (default `/usr/local`; `DESTDIR` works for packaging), `make uninstall` removes them, `make check` runs the
+regression suite.
 
 Needs Free Pascal 3.2 and `libsqlite3` at run time (MySword, theWord).  `NOTES` on formats that were looked at and
 left alone (vendor-protected libraries) are not part of this repository.

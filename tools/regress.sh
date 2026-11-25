@@ -222,6 +222,20 @@ if [ -d $OF ]; then
   [ -f $OF/eng-web.usfx.xml ] && conv "USFX WEB" $OF/eng-web.usfx.xml $T/o_web.txt osis zefania usfm
   if [ -d $OF/web_usfm ]; then
     build/bibdump $OF/web_usfm -p > $T/o_webu.txt
+    # USX: our writers, read back, and files written by BibleMultiConverter (an independent writer)
+    for t in usx usx2; do
+      build/bibconv $OF/web_usfm -n c_$t -t $t -o $T -f > /dev/null 2>&1
+      build/bibdump $T/c_${t}_usx -p > $T/c_out.txt 2>/dev/null
+      python3 tools/cmpdict.py $T/o_webu.txt $T/c_out.txt "USFM WEB -> $t: plain text"
+      for f in $T/c_${t}_usx/*.usx; do python3 -c "import sys,xml.etree.ElementTree as E; E.parse(sys.argv[1])" $f || echo "NOT WELL-FORMED $f"; done
+      echo "$t: the 66 files are well-formed XML"
+    done
+    for d in web_usx web_usx3; do
+      if [ -d $OF/$d ]; then
+        build/bibdump $OF/$d -p > $T/c_out.txt
+        python3 tools/cmpdict.py $T/o_webu.txt $T/c_out.txt "USX ($d, from BibleMultiConverter) vs its USFM source, blanks ignored" nospace 30900
+      fi
+    done
     conv "USFM WEB (folder)" $OF/web_usfm $T/o_webu.txt osis zefania usfx
     [ -f $OF/eng-web_usfm.zip ] && { build/bibdump $OF/eng-web_usfm.zip -p > $T/o_webz.txt; python3 tools/cmpdict.py $T/o_webu.txt $T/o_webz.txt "USFM WEB zip vs folder: plain text"; }
   fi

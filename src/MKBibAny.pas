@@ -4,14 +4,14 @@ Unit MKBibAny;       {Pick the right Bible object for a path}
 
 Interface
 
-Uses MKBibMod, MKBibAbs, MKBibSwd, MKBibMys, MKBibStp, MKBibTwd, MKBibVpl, MKBibOsi, MKBibZef, MKBibUfx, MKBibUsf;
+Uses MKBibMod, MKBibAbs, MKBibSwd, MKBibMys, MKBibStp, MKBibTwd, MKBibVpl, MKBibOsi, MKBibZef, MKBibUfx, MKBibUsf, MKBibUsx;
 
-Type BibKind = (bkSword, bkMySword, bkStep, bkTheWord, bkVpl, bkOsis, bkZefania, bkUsfx, bkUsfm);
+Type BibKind = (bkSword, bkMySword, bkStep, bkTheWord, bkVpl, bkOsis, bkZefania, bkUsfx, bkUsfm, bkUsx);
 
 Function DetectBibKind(Path: String): BibKind;
   {.mybible file -> MySword;  .ont / .ot / .nt / .ontx file -> theWord;  .vpl file -> verse per line;
    directory holding Book.dat (any case) -> STEP;  directory with .usfm / .sfm files, one such file or a
-   .zip -> USFM;  an .xml / .osis file whose start has <osis, <XMLBIBLE or <usfx -> OSIS / Zefania / USFX;
+   .zip -> USFM (a .usx file, a directory of them or a .zip with usx in its name -> USX);  an .xml / .osis file whose start has <osis, <XMLBIBLE or <usfx -> OSIS / Zefania / USFX;
    anything else -> Sword}
 Function NewBibObj(Path: String): AbsBibPtr;
   {A new, initialised object of the right kind with SetBibPath(Path) done.  Dispose with FreeBibObj.}
@@ -43,7 +43,7 @@ Function Sniff(Const Path: String): BibStr;
   Sniff := LowerCase(Buf);
   End;
 
-Function HasUsfmFiles(Dir: String): Boolean;
+Function HasFilesWithExt(Dir: String; Const Ext1, Ext2: String): Boolean;
   Var
     SR: TSearchRec;
     E: String;
@@ -55,11 +55,11 @@ Function HasUsfmFiles(Dir: String): Boolean;
     Begin
     Repeat
       E := LowerCase(ExtractFileExt(SR.Name));
-      If (E = '.usfm') Or (E = '.sfm') Then Hit := True;
+      If (E = Ext1) Or (E = Ext2) Then Hit := True;
     Until Hit Or (FindNext(SR) <> 0);
     FindClose(SR);
     End;
-  HasUsfmFiles := Hit;
+  HasFilesWithExt := Hit;
   End;
 
 Function DetectBibKind(Path: String): BibKind;
@@ -75,6 +75,9 @@ Function DetectBibKind(Path: String): BibKind;
     Kind := bkTheWord
   Else If (Not DirectoryExists(Path)) And (LowerCase(ExtractFileExt(Path)) = '.vpl') Then
     Kind := bkVpl
+  Else If (Not DirectoryExists(Path)) And ((LowerCase(ExtractFileExt(Path)) = '.usx') Or
+          ((LowerCase(ExtractFileExt(Path)) = '.zip') And (Pos('usx', LowerCase(ExtractFileName(Path))) > 0))) Then
+    Kind := bkUsx
   Else If (Not DirectoryExists(Path)) And ((LowerCase(ExtractFileExt(Path)) = '.usfm') Or (LowerCase(ExtractFileExt(Path)) = '.sfm') Or
           (LowerCase(ExtractFileExt(Path)) = '.zip')) Then
     Kind := bkUsfm
@@ -100,7 +103,8 @@ Function DetectBibKind(Path: String): BibKind;
       Until FindNext(SR) <> 0;
       FindClose(SR);
       End;
-    If (Kind = bkSword) And (Not DirectoryExists(Path + 'mods.d')) And HasUsfmFiles(Path) Then Kind := bkUsfm;
+    If (Kind = bkSword) And (Not DirectoryExists(Path + 'mods.d')) And HasFilesWithExt(Path, '.usfm', '.sfm') Then Kind := bkUsfm;
+    If (Kind = bkSword) And (Not DirectoryExists(Path + 'mods.d')) And HasFilesWithExt(Path, '.usx', '.usx') Then Kind := bkUsx;
     End;
   DetectBibKind := Kind;
   End;
@@ -116,6 +120,7 @@ Function NewBibObj(Path: String): AbsBibPtr;
     Z: ZefaniaBibPtr;
     X: UsfxBibPtr;
     U: UsfmBibPtr;
+    Y: UsxBibPtr;
   Begin
   Case DetectBibKind(Path) Of
     bkMySword: Begin New(M, Init); NewBibObj := M; End;
@@ -126,6 +131,7 @@ Function NewBibObj(Path: String): AbsBibPtr;
     bkZefania: Begin New(Z, Init); NewBibObj := Z; End;
     bkUsfx: Begin New(X, Init); NewBibObj := X; End;
     bkUsfm: Begin New(U, Init); NewBibObj := U; End;
+    bkUsx: Begin New(Y, Init); NewBibObj := Y; End;
     Else Begin New(S, Init); NewBibObj := S; End;
     End;
   NewBibObj^.SetBibPath(Path);

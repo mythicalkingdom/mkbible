@@ -331,7 +331,7 @@ var
   D, Ext: String;
   SR: TSearchRec;
   Cand: array of String;
-  HasBookDat, HasUsfm: Boolean;
+  HasBookDat, HasUsfm, HasUsx: Boolean;
   i: Integer;
   B: AbsBibPtr;
   Desc: String;
@@ -357,26 +357,28 @@ begin
     begin
     HasBookDat := False;
     HasUsfm := False;
+    HasUsx := False;
     if FindFirst(D + '*', faAnyFile, SR) = 0 then
       begin
       repeat
         if ((SR.Attr and faDirectory) = 0) and (LowerCase(SR.Name) = 'book.dat') then HasBookDat := True;
         Ext := LowerCase(ExtractFileExt(SR.Name));
         if ((SR.Attr and faDirectory) = 0) and ((Ext = '.usfm') or (Ext = '.sfm')) then HasUsfm := True;
+        if ((SR.Attr and faDirectory) = 0) and (Ext = '.usx') then HasUsx := True;
       until FindNext(SR) <> 0;
       FindClose(SR);
       end;
-    if HasBookDat or HasUsfm then AddCand(ExcludeTrailingPathDelimiter(Dir))
+    if HasBookDat or HasUsfm or HasUsx then AddCand(ExcludeTrailingPathDelimiter(Dir))
     else if FindFirst(D + '*', faAnyFile, SR) = 0 then
       begin
       repeat
         if (SR.Attr and faDirectory) = 0 then
           begin
           Ext := LowerCase(ExtractFileExt(SR.Name));
-          { a .zip is only tried when it looks like a USFM Bible (any other zip would be unpacked for nothing) }
+          { a .zip is only tried when it looks like a USFM or USX Bible (any other zip would be unpacked for nothing) }
           if (Ext = '.zip') then
             begin
-            if Pos('usfm', LowerCase(SR.Name)) > 0 then AddCand(D + SR.Name);
+            if (Pos('usfm', LowerCase(SR.Name)) > 0) or (Pos('usx', LowerCase(SR.Name)) > 0) then AddCand(D + SR.Name);
             end
           else if (Ext <> '') and (Pos(Ext, SkipExts) = 0) then AddCand(D + SR.Name);
           end;

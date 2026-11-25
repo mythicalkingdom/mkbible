@@ -54,7 +54,7 @@ Unit MKBibMkp;       {Markup translator: OSIS, ThML, GBF, MySword <-> each other
 Interface
 
 Type
-  MkpFormat = (mfPlain, mfOSIS, mfThML, mfGBF, mfMySword, mfSTEP, mfTheWord, mfVPL, mfHTML, mfTEI, mfUSFM, mfUSFX, mfZefania);
+  MkpFormat = (mfPlain, mfOSIS, mfThML, mfGBF, mfMySword, mfSTEP, mfTheWord, mfVPL, mfHTML, mfTEI, mfUSFM, mfUSFX, mfZefania, mfUSX);
   MkpOpt = (moHeadings, moBreaks);
   MkpOpts = Set Of MkpOpt;
 
@@ -2811,6 +2811,126 @@ Procedure ParseZefania(Const S: AnsiString; Var D: TDoc);
     If St.A[i].HasOff Then Add(D, St.A[i].Off);
   End;
 
+{ ---- USX (USX 2 and 3: the XML of USFM, <para style="p"><verse number="1"/>text<char style="wj">..</char></para>) ---- }
+Procedure ParseUSX(Const S: AnsiString; Var D: TDoc);
+  Var
+    Pos_, Skip, Cls, Lvl: Integer;
+    IsTag: Boolean;
+    Txt, V, Sty: AnsiString;
+    T: TTag;
+    St: TStack;
+    i: Integer;
+  Begin
+  St.N := 0;
+  Skip := 0;
+  Pos_ := 1;
+  While NextToken(S, Pos_, IsTag, Txt) Do
+    Begin
+    If Not IsTag Then
+      Begin
+      If Skip = 0 Then Add(D, ekText, DecodeEntities(Txt));
+      Continue;
+      End;
+    SplitTag(Txt, False, T);
+    If (T.Name = '') Or (T.Name[1] In ['!', '?']) Then Continue;
+    If T.Close Then
+      Begin
+      i := St.N - 1;
+      While (i >= 0) And (St.A[i].Name <> T.Name) Do Dec(i);
+      If (i >= 0) And (St.A[i].Marker = 'skip') And (Skip > 0) Then Dec(Skip);
+      PopTo(D, St, T.Name);
+      Continue;
+      End;
+    If (T.Name = 'verse') Or (T.Name = 'chapter') Or (T.Name = 'usx') Or (T.Name = 'optbreak') Or (T.Name = 'ms') Then Continue;
+    Sty := '';
+    Attr(T.Attrs, 'style', Sty);
+    Sty := LowerCase(Sty);
+    If T.Name = 'book' Then
+      Begin
+      If Not T.Empty Then
+        Begin Inc(Skip); Push(St, 'book', ekLine, False); St.A[St.N - 1].Marker := 'skip'; End;
+      End
+    Else If T.Name = 'para' Then
+      Begin
+      Cls := UsfmClass(Sty);
+      If Sty = '' Then Cls := 1;
+      Case Cls Of
+        2: Add(D, ekLine);
+        3:
+          If Sty = 'd' Then
+            Begin
+            Add(D, ekPara);
+            Add(D, ekItalicOn);
+            If Not T.Empty Then Push(St, 'para', ekItalicOff, True) Else Add(D, ekItalicOff);
+            Continue;
+            End
+          Else
+            Begin
+            If Copy(Sty, 1, 2) = 'ms' Then Lvl := 1 Else If (Sty = 's2') Or (Sty = 's3') Or (Sty = 's4') Then Lvl := 3 Else Lvl := 2;
+            Add(D, ekHeadOn, '', Lvl);
+            If Not T.Empty Then Push(St, 'para', ekHeadOff, True) Else Add(D, ekHeadOff);
+            Continue;
+            End;
+        4:
+          Begin
+          If Not T.Empty Then
+            Begin Inc(Skip); Push(St, 'para', ekLine, False); St.A[St.N - 1].Marker := 'skip'; End;
+          Continue;
+          End;
+        Else Add(D, ekPara);
+      End;
+      If Not T.Empty Then Push(St, 'para', ekLine, False);
+      End
+    Else If T.Name = 'char' Then
+      Begin
+      If T.Empty Then Continue;
+      If Sty = 'w' Then
+        Begin
+        PopTo(D, St, 'char');
+        Add(D, ekWordOn);
+        If Attr(T.Attrs, 'strong', V) Or Attr(T.Attrs, 'lemma', V) Then D.Ev[D.N - 1].Strong := StrongList(V);
+        If Attr(T.Attrs, 'x-morph', V) Or Attr(T.Attrs, 'morph', V) Then D.Ev[D.N - 1].Morph := MorphList(V);
+        Push(St, 'char', ekWordOff, True);
+        End
+      Else If Sty = 'wj' Then Begin Add(D, ekJesusOn); Push(St, 'char', ekJesusOff, True); End
+      Else If (Sty = 'add') Or (Sty = 'it') Or (Sty = 'em') Then Begin Add(D, ekItalicOn); Push(St, 'char', ekItalicOff, True); End
+      Else If Sty = 'bd' Then Begin Add(D, ekBoldOn); Push(St, 'char', ekBoldOff, True); End
+      Else If Sty = 'bdit' Then Begin Add(D, ekBoldOn); Add(D, ekItalicOn); Push(St, 'char', ekItalicOff, True); End
+      Else If (Sty = 'fr') Or (Sty = 'xo') Or (Sty = 'fv') Or (Sty = 'fig') Or (Sty = 'ca') Or (Sty = 'va') Or
+              (Sty = 'vp') Or (Sty = 'rq') Or (Sty = 'cat') Then
+        Begin Inc(Skip); Push(St, 'char', ekLine, False); St.A[St.N - 1].Marker := 'skip'; End
+      Else Push(St, 'char', ekLine, False);
+      End
+    Else If T.Name = 'note' Then
+      Begin
+      If T.Empty Then Continue;
+      If (Sty = 'x') Or (Sty = 'ex') Then Add(D, ekNoteOn, '', 1) Else Add(D, ekNoteOn, '', 0);
+      Push(St, 'note', ekNoteOff, True);
+      End
+    Else If T.Name = 'ref' Then
+      Begin
+      If T.Empty Then Continue;
+      If Attr(T.Attrs, 'loc', V) And (MkpHumanToOsis(V) <> '') Then
+        Begin Add(D, ekXrefOn, MkpHumanToOsis(V)); Push(St, 'ref', ekXrefOff, True); End
+      Else Push(St, 'ref', ekXrefOff, False);
+      End
+    Else If T.Name = 'row' Then
+      Begin
+      Add(D, ekLine);
+      If Not T.Empty Then Push(St, 'row', ekLine, False);
+      End
+    Else If T.Name = 'figure' Then
+      Begin
+      If Not T.Empty Then
+        Begin Inc(Skip); Push(St, 'figure', ekLine, False); St.A[St.N - 1].Marker := 'skip'; End;
+      End
+    Else If Not T.Empty Then
+      Push(St, T.Name, ekLine, False);
+    End;
+  For i := St.N - 1 DownTo 0 Do
+    If St.A[i].HasOff Then Add(D, St.A[i].Off);
+  End;
+
 { ---- writers ---- }
 Function WriteUSFM(Const D: TDoc): AnsiString;
   Var
@@ -2955,6 +3075,55 @@ Function WriteZefania(Const D: TDoc): AnsiString;
   End;
 
 
+Function WriteUSX(Const D: TDoc): AnsiString;
+  { for the inside of a <para style="p">: a new paragraph is </para><para style="..."> }
+  Var
+    O, WStrong, WMorph: AnsiString;
+    i, N: Integer;
+    NoteX: Array Of Boolean;
+  Begin
+  O := '';
+  N := 0;
+  SetLength(NoteX, 8);
+  For i := 0 To D.N - 1 Do
+    With D.Ev[i] Do
+      Case Kind Of
+        ekText: O := O + Esc(Txt);
+        ekPara: If N = 0 Then O := O + '</para><para style="p">';
+        ekLine: If N = 0 Then O := O + '</para><para style="q1">';
+        ekItalicOn: O := O + '<char style="it">';
+        ekItalicOff, ekBoldOff, ekJesusOff: O := O + '</char>';
+        ekBoldOn: O := O + '<char style="bd">';
+        ekJesusOn: O := O + '<char style="wj">';
+        ekNoteOn:
+          Begin
+          If N >= Length(NoteX) Then SetLength(NoteX, N * 2);
+          NoteX[N] := Num = 1;
+          Inc(N);
+          If Num = 1 Then O := O + '<note caller="-" style="x"><char style="xt">' Else O := O + '<note caller="+" style="f"><char style="ft">';
+          End;
+        ekNoteOff:
+          If N > 0 Then
+            Begin
+            Dec(N);
+            O := O + '</char></note>';
+            End;
+        ekXrefOn: If (Txt <> '') And (N = 0) Then O := O + '<ref loc="' + Esc(MkpOsisToHuman(Txt)) + '">' Else O := O + '<ref loc="">';
+        ekXrefOff: O := O + '</ref>';
+        ekHeadOn: If N = 0 Then O := O + '</para><para style="s1">';
+        ekHeadOff: If N = 0 Then O := O + '</para><para style="p">';
+        ekWordOn:
+          Begin
+          O := O + '<char style="w"';
+          If Strong <> '' Then O := O + ' strong="' + StringReplace(Strong, ' ', ',', [rfReplaceAll]) + '"';
+          If Morph <> '' Then O := O + ' x-morph="' + Esc(Morph) + '"';
+          O := O + '>';
+          End;
+        ekWordOff: O := O + '</char>';
+      End;
+  WriteUSX := O;
+  End;
+
 {==================================================================== API}
 
 Function MkpTranslate(Const S: AnsiString; From, Dest: MkpFormat; Opts: MkpOpts): AnsiString;
@@ -2978,6 +3147,7 @@ Function MkpTranslate(Const S: AnsiString; From, Dest: MkpFormat; Opts: MkpOpts)
     mfUSFM: ParseUSFM(S, D);
     mfUSFX: ParseUSFX(S, D);
     mfZefania: ParseZefania(S, D);
+    mfUSX: ParseUSX(S, D);
   End;
   Normalize(D);
   Balance(D);
@@ -3005,6 +3175,7 @@ Function MkpTranslate(Const S: AnsiString; From, Dest: MkpFormat; Opts: MkpOpts)
     mfUSFM: MkpTranslate := WriteUSFM(D);
     mfUSFX: MkpTranslate := WriteUSFX(D);
     mfZefania: MkpTranslate := WriteZefania(D);
+    mfUSX: MkpTranslate := WriteUSX(D);
     mfMySword, mfTheWord: MkpTranslate := WriteGBF(D, True);       {theWord reads what MySword reads}
   End;
   End;
@@ -3031,6 +3202,7 @@ Function MkpSummary(Const S: AnsiString; From: MkpFormat): AnsiString;
     mfUSFM: ParseUSFM(S, D);
     mfUSFX: ParseUSFX(S, D);
     mfZefania: ParseZefania(S, D);
+    mfUSX: ParseUSX(S, D);
   End;
   Normalize(D);
   Balance(D);

@@ -38,7 +38,7 @@ Const
 Type
   BibStr = AnsiString;    {verses and entries can be longer than 255 characters}
 
-  BibMarkup = (bmPlain, bmOSIS, bmThML, bmGBF, bmTEI, bmHTML, bmRTF, bmUnknown, bmMySword, bmSTEP, bmTheWord, bmVPL, bmUSFM, bmUSFX, bmZefania);
+  BibMarkup = (bmPlain, bmOSIS, bmThML, bmGBF, bmTEI, bmHTML, bmRTF, bmUnknown, bmMySword, bmSTEP, bmTheWord, bmVPL, bmUSFM, bmUSFX, bmZefania, bmUSX);
 
 Type AbsModObj = Object
   MetaName, MetaDesc, MetaLang, MetaVer, MetaCopy: String;   {for writing; getters return them}
@@ -293,6 +293,7 @@ Function MarkupToMkp(M: BibMarkup): MkpFormat;
     bmUSFM: MarkupToMkp := mfUSFM;
     bmUSFX: MarkupToMkp := mfUSFX;
     bmZefania: MarkupToMkp := mfZefania;
+    bmUSX: MarkupToMkp := mfUSX;
     bmRTF: MarkupToMkp := mfSTEP;           {general RTF: theWord books, STEP}
     Else MarkupToMkp := mfPlain;
     End;
@@ -300,7 +301,7 @@ Function MarkupToMkp(M: BibMarkup): MkpFormat;
 
 Function MarkupIsTranslatable(M: BibMarkup): Boolean;
   Begin
-  MarkupIsTranslatable := M In [bmPlain, bmOSIS, bmThML, bmGBF, bmMySword, bmSTEP, bmTheWord, bmVPL, bmHTML, bmTEI, bmRTF, bmUSFM, bmUSFX, bmZefania];
+  MarkupIsTranslatable := M In [bmPlain, bmOSIS, bmThML, bmGBF, bmMySword, bmSTEP, bmTheWord, bmVPL, bmHTML, bmTEI, bmRTF, bmUSFM, bmUSFX, bmZefania, bmUSX];
   End;
 
 Function Latin1ToUtf8(Const S: BibStr): BibStr;

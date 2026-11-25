@@ -4,10 +4,10 @@ Program BibConv;
   usage: bibconv <source> [-n <NewName>] [options]
      <source>   a Sword module name / .conf file / Sword directory, or a .bbl.mybible file
      -n <name>  name of the new module (default: the source's name)
-     -t zip|lzss|raw|mysword|theword|vpl|osis|zefania|usfx|usfm   target format           default zip
+     -t zip|lzss|raw|mysword|theword|vpl|osis|zefania|usfx|usfm|usx|usx2   target format (usx writes USX 3)           default zip
      -o <dir>   output root (Sword: mods.d/ + modules/;  MySword: the .bbl.mybible lands here)   default .
      -b book|chapter|verse     Sword zText block type              default book
-     -m auto|same|plain|osis|thml|gbf|mysword|theword|vpl|zefania|usfx|usfm    markup of the text in the new module   default auto
+     -m auto|same|plain|osis|thml|gbf|mysword|theword|vpl|zefania|usfx|usfm|usx    markup of the text in the new module   default auto
      -r         same as -m same
      -k <key>   unlock key of an enciphered source          -e <key>  encipher the new Sword module
      -D <text>  description override                        -f        replace an existing module
@@ -32,7 +32,7 @@ Program BibConv;
 {$MODE OBJFPC}{$H+}
 {$I-}
 
-Uses SysUtils, MKBibVrs, MKBibMod, MKBibAbs, MKBibSwd, MKBibMys, MKBibTwd, MKBibVpl, MKBibOsi, MKBibZef, MKBibUfx, MKBibUsf,
+Uses SysUtils, MKBibVrs, MKBibMod, MKBibAbs, MKBibSwd, MKBibMys, MKBibTwd, MKBibVpl, MKBibOsi, MKBibZef, MKBibUfx, MKBibUsf, MKBibUsx,
   MKBibAny, MKBibMkp;
 
 Var
@@ -49,6 +49,7 @@ Var
   ZefD: ZefaniaBibObj;
   UfxD: UsfxBibObj;
   UsfD: UsfmBibObj;
+  UsxD: UsxBibObj;
   DstMem: Boolean;
   MemFile: String;
   OwnMk: BibMarkup;
@@ -84,6 +85,7 @@ Function MarkupName(M: BibMarkup): String;
     bmUSFM: MarkupName := 'USFM';
     bmUSFX: MarkupName := 'USFX';
     bmZefania: MarkupName := 'Zefania XML';
+    bmUSX: MarkupName := 'USX';
     Else MarkupName := 'unknown markup';
     End;
   End;
@@ -155,7 +157,7 @@ For I := 1 To Length(NewName) Do
 DstMys := Tg = 'mysword';
 DstTw := Tg = 'theword';
 DstVpl := Tg = 'vpl';
-DstMem := (Tg = 'osis') Or (Tg = 'zefania') Or (Tg = 'usfx') Or (Tg = 'usfm');
+DstMem := (Tg = 'osis') Or (Tg = 'zefania') Or (Tg = 'usfx') Or (Tg = 'usfm') Or (Tg = 'usx') Or (Tg = 'usx2');
 DstFlat := DstMys Or DstTw Or DstVpl Or DstMem;    {one file / folder, KJV structure, no Apocrypha}
 If (Tg <> 'zip') And (Tg <> 'lzss') And (Tg <> 'raw') And (Not DstFlat) Then Usage;
 If DstMys Then Begin MysD.Init; Dst := @MysD; End
@@ -165,6 +167,12 @@ Else If Tg = 'osis' Then Begin OsiD.Init; Dst := @OsiD; End
 Else If Tg = 'zefania' Then Begin ZefD.Init; Dst := @ZefD; End
 Else If Tg = 'usfx' Then Begin UfxD.Init; Dst := @UfxD; End
 Else If Tg = 'usfm' Then Begin UsfD.Init; Dst := @UsfD; End
+Else If (Tg = 'usx') Or (Tg = 'usx2') Then
+  Begin
+  UsxD.Init;
+  If Tg = 'usx2' Then UsxD.Ver := 2;
+  Dst := @UsxD;
+  End
 Else Begin SwdD.Init; Dst := @SwdD; End;
 Sys := Src^.VSys;
 If DstFlat And (Sys In [vsNRSV, vsNRSVA]) Then
@@ -180,7 +188,8 @@ OwnMk := bmPlain;
 If Tg = 'osis' Then OwnMk := bmOSIS
 Else If Tg = 'zefania' Then OwnMk := bmZefania
 Else If Tg = 'usfx' Then OwnMk := bmUSFX
-Else If Tg = 'usfm' Then OwnMk := bmUSFM;
+Else If Tg = 'usfm' Then OwnMk := bmUSFM
+Else If (Tg = 'usx') Or (Tg = 'usx2') Then OwnMk := bmUSX;
 SrcFmt := Src^.GetMkpFormat;
 Raw := False;
 If Mk = 'auto' Then
@@ -188,7 +197,7 @@ If Mk = 'auto' Then
   If DstMys Then Mk := 'mysword'
   Else If DstTw Then Mk := 'theword'
   Else If DstVpl Then Mk := 'vpl'
-  Else If DstMem Then Mk := Tg
+  Else If DstMem Then Begin If Tg = 'usx2' Then Mk := 'usx' Else Mk := Tg; End
   Else If Src^.GetMarkup In [bmOSIS, bmThML, bmGBF] Then Mk := 'same'
   Else Mk := 'osis';
   End;
@@ -201,6 +210,7 @@ If (Mk = 'vpl') And (Src^.GetMarkup = bmVPL) Then Mk := 'same';
 If (Mk = 'zefania') And (Src^.GetMarkup = bmZefania) Then Mk := 'same';
 If (Mk = 'usfx') And (Src^.GetMarkup = bmUSFX) Then Mk := 'same';
 If (Mk = 'usfm') And (Src^.GetMarkup = bmUSFM) Then Mk := 'same';
+If (Mk = 'usx') And (Src^.GetMarkup = bmUSX) Then Mk := 'same';
 If Mk = 'same' Then
   Begin
   Raw := True;
@@ -234,7 +244,7 @@ If Mk = 'same' Then
     WriteLn('Use -m ', Tg, ' (translate) or -m plain.');
     Halt(3);
     End;
-  If (Not DstFlat) And (Src^.GetMarkup In [bmMySword, bmTheWord, bmVPL, bmUSFM, bmUSFX, bmZefania]) Then
+  If (Not DstFlat) And (Src^.GetMarkup In [bmMySword, bmTheWord, bmVPL, bmUSFM, bmUSFX, bmZefania, bmUSX]) Then
     Begin
     WriteLn('the source markup is MySword / theWord / light / USFM / USFX / Zefania markup; a Sword module needs OSIS, ThML, GBF or plain text.');
     WriteLn('Use -m osis, -m thml, -m gbf or -m plain.');
@@ -255,6 +265,7 @@ Else
   Else If Mk = 'zefania' Then Begin DstMk := bmZefania; DstFmt := mfZefania; End
   Else If Mk = 'usfx' Then Begin DstMk := bmUSFX; DstFmt := mfUSFX; End
   Else If Mk = 'usfm' Then Begin DstMk := bmUSFM; DstFmt := mfUSFM; End
+  Else If Mk = 'usx' Then Begin DstMk := bmUSX; DstFmt := mfUSX; End
   Else Usage;
   If DstMem And (Not (DstMk In [OwnMk, bmPlain])) Then
     Begin
@@ -276,7 +287,7 @@ Else
     WriteLn('a MySword module can only hold MySword markup or plain text.');
     Halt(3);
     End;
-  If (Not DstFlat) And (DstMk In [bmMySword, bmTheWord, bmVPL, bmUSFM, bmUSFX, bmZefania]) Then
+  If (Not DstFlat) And (DstMk In [bmMySword, bmTheWord, bmVPL, bmUSFM, bmUSFX, bmZefania, bmUSX]) Then
     Begin
     WriteLn('Sword modules cannot use MySword / theWord markup: use -m osis, thml, gbf or plain.');
     Halt(3);
@@ -371,7 +382,8 @@ MemFile := '';
 If Tg = 'osis' Then MemFile := OsiD.FileName
 Else If Tg = 'zefania' Then MemFile := ZefD.FileName
 Else If Tg = 'usfx' Then MemFile := UfxD.FileName
-Else If Tg = 'usfm' Then MemFile := UsfD.FileName;
+Else If Tg = 'usfm' Then MemFile := UsfD.FileName
+Else If (Tg = 'usx') Or (Tg = 'usx2') Then MemFile := UsxD.FileName;
 If DstMem Then WriteLn('module: ', MemFile)
 Else If DstVpl Then WriteLn('module: ', VplD.FileName)
 Else If DstTw Then WriteLn('module: ', TwdD.FileName)

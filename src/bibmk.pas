@@ -1,6 +1,6 @@
 Program BibMk;
 { Try the markup translator.   bibmk <from> <to> [-h] [-b] [-s] "text"      (text: "-" reads stdin)
-  formats: plain osis thml gbf mysword step theword vpl html tei usfm usfx zefania rtf (step, tei: read only);  -h keep headings, -b keep breaks (plain), -s print a summary too }
+  formats: plain osis thml gbf mysword step theword vpl html tei usfm usfx usx zefania rtf (step, tei: read only);  -h keep headings, -b keep breaks (plain), -s print a summary too }
 {$MODE OBJFPC}{$H+}
 Uses SysUtils, MKBibMkp;
 
@@ -18,6 +18,7 @@ Function Fmt(Const S: String): MkpFormat;
   Else If S = 'usfm' Then Fmt := mfUSFM
   Else If S = 'usfx' Then Fmt := mfUSFX
   Else If S = 'zefania' Then Fmt := mfZefania
+  Else If S = 'usx' Then Fmt := mfUSX
   Else If S = 'rtf' Then Fmt := mfSTEP
   Else If S = 'plain' Then Fmt := mfPlain
   Else Begin WriteLn('unknown format ', S); Halt(1); End;
