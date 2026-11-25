@@ -10,12 +10,14 @@ uses
   MKBibMod, MKBibAbs, MKBibAny, MKBibMkp, MKBibDic, MKDicAny, mkbiblecfg, mkbiblescan;
 
 type
-  TTokKind = (tkWord, tkNum, tkHead, tkBreak, tkGap);
+  TTokKind = (tkWord, tkNum, tkHead, tkBreak, tkGap, tkNote);
   TTok = record
     Txt: String;
     Kind: TTokKind;
     Red, Ital, Bold, Mark, Glue: Boolean;   { Glue: no space before it (punctuation right after a word) }
     Strong: String;          { Strong's numbers of the word, 'H7225 G26' }
+    Note: String;            { tkNote: the footnote text, or the cross references (separated by ';') }
+    NoteX: Boolean;          { tkNote: a cross reference note }
     Ref: Integer;            { verse number, or the index of a search hit }
   end;
   TRun = record
@@ -84,6 +86,7 @@ type
     Rows: array of TSideRow;
     procedure ShowOnce(Sender: TObject);
     procedure StrongTimer(Sender: TObject);
+    procedure NoteTimer(Sender: TObject);
     procedure BuildMenus;
     procedure OpenMenu(Idx: Integer);
     procedure CloseDrop;
@@ -108,6 +111,7 @@ type
     procedure DoStrongsDict;
     procedure CopyChapter;
     procedure ShowStrongs(RunIdx, SX, SY: Integer);
+    procedure ShowNote(RunIdx, SX, SY: Integer);
     function RunAt(X, Y: Integer): Integer;
     function AutoDict(const Feature: String): String;
     function OpenDict(var D: AbsDictPtr; var Spec: String; const SettingKey, Feature: String): Boolean;
@@ -222,6 +226,17 @@ begin
     if Runs[CC].T.Strong <> '' then begin ShowStrongs(CC, Runs[CC].X, Runs[CC].Y - ScrollY + 40); Break; end;
 end;
 
+procedure TMainForm.NoteTimer(Sender: TObject);
+var
+  CC, Want: Integer;
+begin
+  (Sender as TTimer).Enabled := False;
+  Want := (Sender as TTimer).Tag;
+  for CC := 0 to High(Runs) do
+    if (Runs[CC].T.Kind = tkNote) and (Runs[CC].T.NoteX = (Want = 2)) then
+      begin ShowNote(CC, Runs[CC].X, Runs[CC].Y - ScrollY + 40); Break; end;
+end;
+
 procedure TMainForm.ShowOnce(Sender: TObject);
 var
   B, CC: Integer;
@@ -251,6 +266,13 @@ begin
         begin
         Interval := 1500;
         OnTimer := @StrongTimer;
+        end;
+    if (ParamStr(B) = '--note') or (ParamStr(B) = '--xref') then
+      with TTimer.Create(Self) do
+        begin
+        Interval := 1500;
+        if ParamStr(B) = '--xref' then Tag := 2 else Tag := 1;
+        OnTimer := @NoteTimer;
         end;
     if (ParamStr(B) = '--search') and (B < ParamCount) then begin Hinting := False; SearchEd.Font.Color := Theme.Text; SearchEd.Text := ParamStr(B + 1); RunSearch(ParamStr(B + 1)); end;
     if (ParamStr(B) = '--chapter') and (B + 1 < ParamCount) then GoChapter(StrToIntDef(ParamStr(B + 1), 1), StrToIntDef(ParamStr(B + 2), 1));
@@ -462,9 +484,9 @@ end;
   (words of Jesus, italics, bold, headings, line breaks, Strong's numbers on words) }
 procedure TMainForm.AddVerseToks(const Raw: String; V: Integer);
 var
-  S, W, Tg, Nm, Cur, TitleBuf: String;
+  S, W, Tg, Nm, Cur, TitleBuf, NoteBuf, NoteRefs: String;
   i, j, k, NoteDepth: Integer;
-  Red, Ital, Bold, InTitle, NumDone, Closing, SelfClose, Gap, WGlue, LastWord: Boolean;
+  Red, Ital, Bold, InTitle, NumDone, Closing, SelfClose, Gap, WGlue, LastWord, NoteIsX: Boolean;
   QStack: array of Boolean;
   HStack: array of Char;
   T: TTok;
@@ -474,6 +496,8 @@ var
     T.Txt := Txt; T.Kind := K; T.Red := Red; T.Ital := Ital; T.Bold := Bold; T.Mark := False; T.Ref := V;
     T.Strong := Cur;
     T.Glue := False;
+    T.Note := '';
+    T.NoteX := False;
     SetLength(Toks, Length(Toks) + 1);
     Toks[High(Toks)] := T;
   end;
@@ -540,7 +564,13 @@ var
   procedure Flush;
   begin
     if W = '' then Exit;
-    if NoteDepth > 0 then begin W := ''; Exit; end;
+    if NoteDepth > 0 then
+      begin
+      if NoteBuf <> '' then NoteBuf := NoteBuf + ' ';
+      NoteBuf := NoteBuf + Decode(W);
+      W := '';
+      Exit;
+      end;
     if InTitle then
       begin
       if TitleBuf <> '' then TitleBuf := TitleBuf + ' ';
@@ -560,7 +590,7 @@ var
 begin
   S := MkpTranslate(Raw, Bib^.GetMkpFormat, mfOSIS, [moHeadings]);
   Red := False; Ital := False; Bold := False; InTitle := False; NumDone := False; NoteDepth := 0;
-  Cur := ''; W := ''; TitleBuf := ''; Gap := True; WGlue := False; LastWord := False;
+  Cur := ''; W := ''; TitleBuf := ''; NoteBuf := ''; NoteRefs := ''; NoteIsX := False; Gap := True; WGlue := False; LastWord := False;
   SetLength(QStack, 0);
   SetLength(HStack, 0);
   i := 1;
@@ -618,8 +648,33 @@ begin
         end
       else if Nm = 'note' then
         begin
-        if Closing then begin if NoteDepth > 0 then Dec(NoteDepth); end
-        else if not SelfClose then Inc(NoteDepth);
+        if Closing then
+          begin
+          if NoteDepth > 0 then Dec(NoteDepth);
+          if (NoteDepth = 0) and (Trim(NoteBuf + NoteRefs) <> '') then
+            begin
+            EnsureNum;
+            if NoteIsX then Push(tkNote, '†') else Push(tkNote, '*');
+            Toks[High(Toks)].NoteX := NoteIsX;
+            Toks[High(Toks)].Glue := True;
+            if NoteIsX and (NoteRefs <> '') then Toks[High(Toks)].Note := NoteRefs
+            else Toks[High(Toks)].Note := Trim(NoteBuf);
+            Toks[High(Toks)].Strong := '';
+            end;
+          end
+        else if not SelfClose then
+          begin
+          if NoteDepth = 0 then begin NoteBuf := ''; NoteRefs := ''; NoteIsX := AttrOf(Tg, 'type') = 'crossReference'; end;
+          Inc(NoteDepth);
+          end;
+        end
+      else if (Nm = 'reference') and (NoteDepth > 0) then
+        begin
+        if (not Closing) and (AttrOf(Tg, 'osisRef') <> '') then
+          begin
+          if NoteRefs <> '' then NoteRefs := NoteRefs + ';';
+          NoteRefs := NoteRefs + AttrOf(Tg, 'osisRef');
+          end;
         end
       else if Nm = 'title' then
         begin
@@ -650,7 +705,6 @@ begin
       end;
     end;
   Flush;
-  EnsureNum;
 end;
 
 procedure TMainForm.AddPlainToks(const S: String; Ref: Integer);
@@ -663,7 +717,7 @@ var
   procedure Emit;
   begin
     if W = '' then Exit;
-    T.Txt := W; T.Kind := tkWord; T.Red := False; T.Ital := False; T.Bold := False; T.Ref := Ref; T.Strong := ''; T.Glue := False;
+    T.Txt := W; T.Kind := tkWord; T.Red := False; T.Ital := False; T.Bold := False; T.Ref := Ref; T.Strong := ''; T.Glue := False; T.Note := ''; T.NoteX := False;
     T.Mark := (HitTerm <> '') and (Pos(Term, LowerCase(W)) > 0);
     SetLength(Toks, Length(Toks) + 1);
     Toks[High(Toks)] := T;
@@ -754,6 +808,15 @@ begin
         AddRun(R);
         X := X + W + Max(3, Sp div 2);
         NeedSp := False;
+        end;
+      tkNote:
+        begin
+        W := MeasureText(T.Txt, Max(S_(14), Round(FontSize * 1.0)), True, False, False);
+        if (X > 0) and (X + W > ColW) then NewLine(0);
+        R.X := Left0 + X; R.Y := Y; R.W := W;
+        AddRun(R);
+        X := X + W + S_(3);
+        NeedSp := True;
         end;
       tkWord:
         begin
@@ -870,6 +933,15 @@ begin
         Bitmap.FontHeight := NumSz;
         Bitmap.FontStyle := [fsBold];
         Bitmap.TextOut(R.X, Y + S_(4), R.T.Txt, Pix(Theme.Accent));
+        end;
+      tkNote:
+        begin
+        Bitmap.FontName := SansName;
+        Bitmap.FontHeight := Max(S_(14), Round(FontSize * 1.0));
+        Bitmap.FontStyle := [fsBold];
+        if i = HoverRun then
+          Bitmap.FillRoundRectAntialias(R.X - S_(4), Y + S_(3), R.X + R.W + S_(4), Y + H - S_(5), S_(5), S_(5), Pix(Theme.AccentSoft));
+        Bitmap.TextOut(R.X, Y + S_(1), R.T.Txt, Pix(Theme.Accent));
         end;
       tkHead:
         begin
@@ -1061,7 +1133,8 @@ begin
   if (not SearchMode) and (Button = mbLeft) then
     begin
     i := RunAt(X, Y);
-    if (i >= 0) and (Runs[i].T.Strong <> '') then ShowStrongs(i, X, Y);
+    if (i >= 0) and (Runs[i].T.Kind = tkNote) then ShowNote(i, X, Y)
+    else if (i >= 0) and (Runs[i].T.Strong <> '') then ShowStrongs(i, X, Y);
     Exit;
     end;
   if not SearchMode then Exit;
@@ -1175,7 +1248,7 @@ begin
     with Toks[High(Toks)] do
       begin
       Txt := Bib^.GetBookName(Hits[N].B) + ' ' + IntToStr(Hits[N].C) + ':' + IntToStr(Hits[N].V);
-      Kind := tkHead; Ref := N; Red := False; Ital := False; Bold := True; Mark := False; Strong := ''; Glue := False;
+      Kind := tkHead; Ref := N; Red := False; Ital := False; Bold := True; Mark := False; Strong := ''; Glue := False; Note := ''; NoteX := False;
       end;
     AddPlainToks(Hits[N].Txt, N);
     end;
@@ -1564,6 +1637,7 @@ function TMainForm.MeasureRun(const R: TRun; const Txt: String): Integer;
 begin
   case R.T.Kind of
     tkNum: Result := MeasureText(Txt, Max(S_(10), Round(FontSize * 0.62)), True, False, False);
+    tkNote: Result := MeasureText(Txt, Max(S_(14), Round(FontSize * 1.0)), True, False, False);
     tkHead: Result := MeasureText(Txt, Max(S_(12), Round(FontSize * 0.85)), True, False, False);
   else
     Result := MeasureText(Txt, FontSize, R.T.Bold, R.T.Ital, not SearchMode);
@@ -1638,7 +1712,7 @@ begin
     if not SearchMode then
       begin
       R := RunAt(X, Y);
-      if (R >= 0) and (Runs[R].T.Strong = '') then R := -1;
+      if (R >= 0) and (Runs[R].T.Strong = '') and (Runs[R].T.Kind <> tkNote) then R := -1;
       end;
     if R <> HoverRun then
       begin
@@ -1683,6 +1757,7 @@ begin
   for i := SelA.Run to Min(SelB.Run, High(Runs)) do
     begin
     if (Runs[i].T.Kind = tkNum) and ((not CopyNums) or ((i = SelA.Run) and (SelA.Ch > 0)) or ((i = SelB.Run) and (SelB.Ch = 0))) then Continue;
+    if Runs[i].T.Kind = tkNote then Continue;
     T := Runs[i].T.Txt;
     C0 := 0;
     C1 := UTF8Length(T);
@@ -1713,6 +1788,13 @@ var
 begin
   Result := -1;
   H := Round(FontSize * 1.7);
+  for i := 0 to High(Runs) do
+    if (Runs[i].T.Kind = tkNote) and (X >= Runs[i].X - S_(4)) and (X <= Runs[i].X + Runs[i].W + S_(4)) and
+       (Y + ScrollY >= Runs[i].Y) and (Y + ScrollY < Runs[i].Y + H) then
+      begin
+      Result := i;
+      Exit;
+      end;
   for i := 0 to High(Runs) do
     if (Runs[i].T.Kind = tkWord) and (X >= Runs[i].X) and (X <= Runs[i].X + Runs[i].W) and
        (Y + ScrollY >= Runs[i].Y) and (Y + ScrollY < Runs[i].Y + H) then
@@ -1812,6 +1894,72 @@ begin
   finally
     Nums.Free;
   end;
+end;
+
+
+{ ------------------------------------------------------------------ footnotes and cross references }
+
+procedure TMainForm.ShowNote(RunIdx, SX, SY: Integer);
+var
+  Body, Item, Human, Lbl: String;
+  Items: TStringList;
+  i, V, V2, P: Integer;
+  R, R2: BibRef;
+  Ok: Boolean;
+  Pt: TPoint;
+
+  function Human_(const Ref: String): String;
+  begin
+    if (Pos('.', Ref) > 0) and (Pos(' ', Ref) = 0) then Result := MkpOsisToHuman(Ref) else Result := Ref;
+  end;
+
+begin
+  Pt := Pane.ClientToScreen(Point(SX, SY));
+  if not Runs[RunIdx].T.NoteX then
+    begin
+    StrongsPopup(Self, Theme, 'Note', Runs[RunIdx].T.Note, Pt);
+    Exit;
+    end;
+  Items := TStringList.Create;
+  try
+    Items.Delimiter := ';';
+    Items.StrictDelimiter := True;
+    Items.DelimitedText := Runs[RunIdx].T.Note;
+    Body := '';
+    for i := 0 to Items.Count - 1 do
+      begin
+      Item := Trim(Items[i]);
+      if Item = '' then Continue;
+      if Body <> '' then Body := Body + LineEnding + LineEnding;
+      { a range (Gen.1.1-Gen.1.3, or John 1:1-3) is looked up as its first verse and the verses up to the last }
+      V2 := 0;
+      Human := Human_(Item);
+      P := Pos('-', Item);
+      if P > 0 then
+        begin
+        Human := Human_(Copy(Item, 1, P - 1));
+        Lbl := Trim(Copy(Item, P + 1, Length(Item)));
+        if StrToIntDef(Lbl, -1) > 0 then V2 := StrToInt(Lbl)
+        else if Bib^.ParseRef(Human_(Lbl), R2) then V2 := R2.Verse;
+        end;
+      Ok := (Bib <> nil) and Bib^.ParseRef(Human, R);
+      if Ok and (not Bib^.ValidRef(R.Book, R.Chapter, R.Verse)) then Ok := False;
+      if not Ok then begin Body := Body + Item; Continue; end;
+      if (V2 < R.Verse) or (V2 > R.Verse + 11) then V2 := R.Verse;
+      Lbl := Bib^.GetBookName(R.Book) + ' ' + IntToStr(R.Chapter) + ':' + IntToStr(R.Verse);
+      if V2 > R.Verse then Lbl := Lbl + '–' + IntToStr(V2);
+      Body := Body + Lbl;
+      for V := R.Verse to V2 do
+        if Bib^.ValidRef(R.Book, R.Chapter, V) then
+          begin
+          Bib^.SetRef(R.Book, R.Chapter, V);
+          Body := Body + LineEnding + Trim(Bib^.GetVerseText);
+          end;
+      end;
+  finally
+    Items.Free;
+  end;
+  StrongsPopup(Self, Theme, 'Cross references', Body, Pt);
 end;
 
 procedure TMainForm.DoStrongsDict;

@@ -74,6 +74,8 @@ folders (`~/.config/mkbible/mkbible.cfg`, `%APPDATA%\mkbible` on Windows).
 * **Strong's numbers:** in a module that carries them (the Sword KJV with Strong's, for example) words with a number
   are underlined under the mouse, and a click opens a pop-up with the Greek or Hebrew dictionary entry. The Sword
   StrongsGreek / StrongsHebrew modules are found on the module folders, or pick others under Settings.
+* **Notes:** footnotes (*) and cross references (†) are marked in the text; a click opens a pop-up with the note or the
+  referenced verses.
 * **Search** with highlighted hits (click one to go there), **text size** (A−, A+), a **reading font** chooser, **module
   folders** editing, HiDPI scaling, and a menu bar (File, View, Settings, Help).
 
