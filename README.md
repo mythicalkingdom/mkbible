@@ -25,9 +25,9 @@ references, Strong's numbers and morphology wherever the target can carry them.
   `vpl2mod`, independent Python readers, and round trips.  Checks that need sample files on the
   author's machine are skipped when the files are not there.
 
-Build with `make` (or `./build.sh`); `make install` puts `mkbible`, `bibconv`, `dictconv`, `bibimp`, `bibdump` and `bibmk` in
-`$(PREFIX)/bin` (default `/usr/local`; `DESTDIR` works for packaging), `make uninstall` removes them, `make check` runs the
-regression suite.
+Build with `make` (or `./build.sh`); `make install` puts `mkbible`, `bibconv`, `dictconv`, `bibimp`, `bibdump` and `bibmk` (and `mkbiblegui`, if `make gui` built it) in
+`$(PREFIX)/bin` (default `/usr/local`; `DESTDIR` works for packaging), `make uninstall` removes them, `make deb` builds a Debian package (`build/mkbible_<version>_<arch>.deb`, with `mkbiblegui`
+and its menu entry when it was built), `make check` runs the regression suite.
 
 Needs Free Pascal 3.2 and `libsqlite3` at run time (MySword, theWord).  `NOTES` on formats that were looked at and
 left alone (vendor-protected libraries) are not part of this repository.

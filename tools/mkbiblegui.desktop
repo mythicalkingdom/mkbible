@@ -1,0 +1,10 @@
+[Desktop Entry]
+Type=Application
+Name=mkbible
+GenericName=Bible reader
+Comment=Read Bible modules (Sword, theWord, MySword, USFM, USX, OSIS ...)
+Exec=mkbiblegui
+Icon=mkbible
+Terminal=false
+Categories=Education;Literature;
+Keywords=Bible;Scripture;Sword;
