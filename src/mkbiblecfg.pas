@@ -25,7 +25,11 @@ uses Classes;
 
 function ConfigDir: String;
 begin
+{$IFDEF WINDOWS}
+  Result := IncludeTrailingPathDelimiter(GetEnvironmentVariable('APPDATA')) + 'mkbible';
+{$ELSE}
   Result := IncludeTrailingPathDelimiter(GetEnvironmentVariable('HOME')) + '.config/mkbible';
+{$ENDIF}
   if not DirectoryExists(Result) then ForceDirectories(Result);
 end;
 

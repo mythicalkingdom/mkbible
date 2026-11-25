@@ -15,6 +15,6 @@ if [ "$1" = "--sword-apocrypha" ]; then
   python3 tools/genvra.py private-samples/sword-master/include src/MKBibVrA.pas
 fi
 for u in MKBibVrA MKBibVrs MKBibZ MKBibCph MKBibMkp MKBibMod MKBibAbs MKBibTxt MKBibSwd MKBibMys MKBibStp MKBibTwd MKBibVpl MKBibSql MKBibDic MKBibCom MKBibBok MKBibSwc MKDicSwd MKDicMys MKDicTwd MKDicAny MKComTwd MKBokTwd MKBibMem MKBibZef MKBibOsi MKBibUfx MKBibZip MKBibUsf MKBibUsx MKBibBeb MKBibUnb MKBibAny dictdump dicttest dictconv comtest boktest comrt bokrt bibtest bibdump bibimp bibconv bibmk mkpcheck stpdump \
-         uCP437 uScreen uKeys uText uPick mkbiblecfg mkbible; do
+         uCP437 uScreen uKeys uText uPick mkbiblecfg mkbiblescan mkbible; do
   fpc -B -Fusrc -Fisrc -FUbuild -FEbuild -vew src/$u.pas
 done

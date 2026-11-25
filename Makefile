@@ -2,6 +2,7 @@
 #   make              build everything into ./build (runs build.sh)
 #   make install      install the programs and documents   (PREFIX=/usr/local, DESTDIR for packaging)
 #   make uninstall    remove them again
+#   make gui          build the prototype GUI reader (needs Lazarus, BGRABitmap and BGRAControls, see gui/README.md)
 #   make check        run the regression suite (needs Sword and sample files, see tools/regress.sh)
 #   make clean
 PREFIX  ?= /usr/local
@@ -11,7 +12,11 @@ DOCDIR  ?= $(PREFIX)/share/doc/mkbible
 # the programs people use; the rest in build/ (bibtest, dicttest, comrt, ...) are test and inspection tools
 PROGRAMS = mkbible bibconv dictconv bibimp bibdump bibmk
 
-.PHONY: all install uninstall check clean
+gui:
+	mkdir -p build/gui-units
+	lazbuild --ws=gtk2 gui/mkbiblegui.lpi
+
+.PHONY: gui all install uninstall check clean
 
 all:
 	./build.sh
