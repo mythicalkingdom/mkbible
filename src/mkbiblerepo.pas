@@ -10,7 +10,8 @@ unit mkbiblerepo;
               the translation as USFM files.  Installed into our own local module folder, one folder per
               translation (the reader's scanner picks up USFM folders).
 
-  Downloads are plain HTTP(S) with the FPC client; HTTPS needs OpenSSL (libssl) on the machine. }
+  Downloads are HTTPS: on Windows with the system's own library (WinInet, see mkbiblewinet), elsewhere with the FPC
+  client, which needs OpenSSL (libssl) on the machine. }
 
 interface
 
@@ -52,28 +53,25 @@ function SystemLangName: String;
 implementation
 
 uses
-  SysUtils, Classes, fphttpclient, opensslsockets, openssl, zstream, zipper, mkbiblecfg;
+  SysUtils, Classes, zstream, zipper, mkbiblecfg,
+{$IFDEF WINDOWS}
+  mkbiblewinet;       { Windows brings its own HTTPS: no OpenSSL DLLs }
+{$ELSE}
+  fphttpclient, opensslsockets, openssl;
+{$ENDIF}
 
-{ ------------------------------------------------------------------ OpenSSL }
+{ ------------------------------------------------------------------ OpenSSL (not on Windows, which has its own) }
 
+{$IFNDEF WINDOWS}
 { FPC 3.2.2 knows OpenSSL 1.x names and, on Unix, only the unversioned libssl.so (a developer package link): a normal
-  system with libssl.so.3 would fail with "could not initialize openssl library".  Teach it the OpenSSL 3 names, first,
+  system with libssl.so.3 would fail with "could not initialize openssl library".  Teach it the OpenSSL 3 name, first,
   and keep the 1.x ones as the fallback. }
 procedure PrepareSsl;
 begin
-{$IFDEF WINDOWS}
-  {$IFDEF WIN64}
-  DLLSSLName := 'libssl-3-x64.dll';
-  DLLUtilName := 'libcrypto-3-x64.dll';
-  {$ELSE}
-  DLLSSLName := 'libssl-3.dll';
-  DLLUtilName := 'libcrypto-3.dll';
-  {$ENDIF}
-{$ELSE}
   DLLVersions[2] := '.3';
   DLLVersions[3] := '.1.1';
-{$ENDIF}
 end;
+{$ENDIF}
 
 { ------------------------------------------------------------------ language names }
 
@@ -181,6 +179,15 @@ end;
 
 { ------------------------------------------------------------------ http }
 
+{$IFDEF WINDOWS}
+
+function HttpGet(const Url: String; S: TStream; out Err: String): Boolean;
+begin
+  Result := WinInetGet(Url, S, Err, OnProgress);
+end;
+
+{$ELSE}
+
 type
   TGetter = class
     procedure Data(Sender: TObject; const ContentLength, CurrentPos: Int64);
@@ -216,6 +223,8 @@ begin
     C.Free;
   end;
 end;
+
+{$ENDIF}
 
 { ------------------------------------------------------------------ gzip + tar }
 
@@ -559,6 +568,8 @@ begin
 end;
 
 initialization
+{$IFNDEF WINDOWS}
   PrepareSsl;
+{$ENDIF}
 
 end.

@@ -98,7 +98,7 @@ folders (`~/.config/mkbible/mkbible.cfg`, `%APPDATA%\mkbible` on Windows).
   into `~/.local/share/mkbible/modules`; either folder is added to the module folders when needed. Locked modules
   (those that need a purchased key) are not listed. More repositories can be added to `mkbible.cfg` as
   `repo.1 = Name | sword | https://host/path` (or `ebible` for an eBible.org style Scriptures folder). Downloads use
-  HTTPS, so OpenSSL (`libssl`) has to be installed.
+  HTTPS (Windows' own on Windows; on Linux OpenSSL, `libssl3`, which the package depends on).
 * **Module list order:** the open module list shows your pinned modules first (marked with a star), then the last five
   you opened, then everything else alphabetically. File, Pin this module (GUI) or Del in the Alt+O list (text reader)
   pins and unpins; the choices are kept in `mkbible.cfg` as `fav =` and `recent =` lines.
@@ -114,8 +114,7 @@ The converters and `mkbibleg` build on 64 bit Windows (the text mode `mkbible` r
 built and run there, but only lightly tested). Install Lazarus (it brings the Free Pascal compiler; the compiler on the
 PATH must be the 64 bit one, `fpc -iTP` prints `x86_64`), put `fpc` and `lazbuild` on the PATH, install the BGRABitmap and
 BGRAControls packages (see `gui\README.md`) and run `build.bat gui`; `build.bat` alone builds only the command line
-tools. Downloading modules needs the OpenSSL **3** DLLs (`libssl-3-x64.dll` and `libcrypto-3-x64.dll`) next to the
-programs; OpenSSL 4 does not work. MySword and theWord modules use the `winsqlite3.dll` that Windows 10 and 11
+tools. Downloading modules uses the HTTPS support that Windows has (WinInet), so no OpenSSL is needed. MySword and theWord modules use the `winsqlite3.dll` that Windows 10 and 11
 include, or a 64 bit `sqlite3.dll` next to the programs. The configuration is kept in `%APPDATA%\mkbible`.
 
 `installer\build-installer.bat` builds an [Inno Setup](https://jrsoftware.org/isinfo.php) installer (see

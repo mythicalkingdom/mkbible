@@ -1,14 +1,8 @@
 mkbible is free software under the GNU General Public License version 3 (see LICENSE.txt).
 
-The Windows installer also carries these third party libraries, which the module downloader and the MySword / theWord
-readers load at run time.  Each keeps its own licence.
+Downloads use the HTTPS support that Windows itself provides (WinInet), so no OpenSSL or other cryptography library is
+installed with the program.
 
-OpenSSL 3 (libssl-3-x64.dll, libcrypto-3-x64.dll)
-    Used for the HTTPS downloads.  Apache License 2.0: the text is in Apache-2.0.txt.
-    https://www.openssl.org/
-
-zlib (zlib1.dll), if it is present next to the program
-    Needed by some builds of OpenSSL.  The zlib licence: https://zlib.net/zlib_license.html
-
-SQLite (sqlite3.dll), if it is present next to the program
-    Public domain.  https://www.sqlite.org/copyright.html
+If a sqlite3.dll was put in the installer's redist folder, it is carried too: SQLite is in the public domain
+(https://www.sqlite.org/copyright.html).  Without it the MySword and theWord readers use the winsqlite3.dll that
+Windows 10 and 11 include.

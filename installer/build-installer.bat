@@ -1,7 +1,7 @@
 @echo off
 rem Build the Windows installer: installer\Output\mkbible-<version>-setup.exe
-rem Needs a 64 bit Free Pascal / Lazarus (see the README, Windows), Inno Setup 6 and the OpenSSL DLLs in installer\redist
-rem (installer\README.md).  Run it from anywhere:  installer\build-installer.bat
+rem Needs a 64 bit Free Pascal / Lazarus (see the README, Windows) and Inno Setup 6 (installer\README.md).
+rem Run it from anywhere:  installer\build-installer.bat
 setlocal
 cd /d "%~dp0"
 
@@ -18,15 +18,6 @@ set CPU=
 for /f %%p in ('fpc -iTP') do set CPU=%%p
 if /i not "%CPU%"=="x86_64" (
   echo The Free Pascal compiler on the PATH builds for "%CPU%", not x86_64.  Put the 64 bit one first on the PATH.
-  exit /b 1
-)
-
-if not exist redist\libssl-3-x64.dll (
-  echo installer\redist\libssl-3-x64.dll is missing: see installer\README.md
-  exit /b 1
-)
-if not exist redist\libcrypto-3-x64.dll (
-  echo installer\redist\libcrypto-3-x64.dll is missing: see installer\README.md
   exit /b 1
 )
 

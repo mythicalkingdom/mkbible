@@ -1,6 +1,6 @@
 ; Inno Setup 6 script for mkbible: the graphical reader mkbibleg and, as an option, the command line tools.
-; Build it with installer\build-installer.bat (see installer\README.md); it needs a 64 bit build in ..\build and the
-; OpenSSL DLLs in installer\redist.
+; Build it with installer\build-installer.bat (see installer\README.md); it needs a 64 bit build in ..\build.
+; No OpenSSL is needed: the module downloader uses the HTTPS support Windows has (WinInet).
 
 #ifndef MyVersion
   #define MyVersion "0.0.0"
@@ -10,9 +10,6 @@
 
 #if !FileExists(SourcePath + "..\build\" + MyExe)
   #error "..\build\mkbibleg.exe is missing: run build.bat gui first (a 64 bit compiler)."
-#endif
-#if !FileExists(SourcePath + "redist\libssl-3-x64.dll") || !FileExists(SourcePath + "redist\libcrypto-3-x64.dll")
-  #error "installer\redist must hold libssl-3-x64.dll and libcrypto-3-x64.dll (OpenSSL 3, 64 bit); see installer\README.md."
 #endif
 
 [Setup]
@@ -62,8 +59,8 @@ Name: "addpath"; Description: "Add the command line tools to the &PATH"; Compone
 
 [Files]
 Source: "..\build\{#MyExe}"; DestDir: "{app}"; Components: main; Flags: ignoreversion
-; the OpenSSL 3 DLLs the module downloader loads, and whatever else is in redist (zlib1.dll, sqlite3.dll ...)
-Source: "redist\*.dll"; DestDir: "{app}"; Components: main; Flags: ignoreversion
+; any extra DLL put in redist (a sqlite3.dll, say; none is needed otherwise)
+Source: "redist\*.dll"; DestDir: "{app}"; Components: main; Flags: ignoreversion skipifsourcedoesntexist
 Source: "..\LICENSE"; DestDir: "{app}"; DestName: "LICENSE.txt"; Components: main; Flags: ignoreversion
 Source: "licenses\*"; DestDir: "{app}\licenses"; Components: main; Flags: ignoreversion
 Source: "redist\licenses\*"; DestDir: "{app}\licenses"; Components: main; Flags: ignoreversion skipifsourcedoesntexist
