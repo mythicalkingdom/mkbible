@@ -92,6 +92,9 @@ folders (`~/.config/mkbible/mkbible.cfg`, `%APPDATA%\mkbible` on Windows).
   (those that need a purchased key) are not listed. More repositories can be added to `mkbible.cfg` as
   `repo.1 = Name | sword | https://host/path` (or `ebible` for an eBible.org style Scriptures folder). Downloads use
   HTTPS, so OpenSSL (`libssl`) has to be installed.
+* **Module list order:** the open module list shows your pinned modules first (marked with a star), then the last five
+  you opened, then everything else alphabetically. File, Pin this module (GUI) or Del in the Alt+O list (text reader)
+  pins and unpins; the choices are kept in `mkbible.cfg` as `fav =` and `recent =` lines.
 * **Search** with highlighted hits (click one to go there), **text size** (A−, A+), a **reading font** chooser, **module
   folders** editing, HiDPI scaling, and a menu bar (File, View, Settings, Help).
 

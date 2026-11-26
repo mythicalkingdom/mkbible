@@ -1191,7 +1191,7 @@ end;
 procedure TMainForm.ModClick(Sender: TObject);
 var
   Paths: TStringArray;
-  i: Integer;
+  NFav, NRec, i: Integer;
   Mi: TMenuItem;
   P: TPoint;
 begin
@@ -1200,6 +1200,7 @@ begin
   Screen.Cursor := crHourGlass;
   try
     for i := 0 to High(Paths) do ScanDir(Paths[i], Mods);
+    OrderModules(Mods, NFav, NRec);
   finally
     Screen.Cursor := crDefault;
   end;
@@ -1213,8 +1214,14 @@ begin
     end;
   for i := 0 to High(Mods) do
     begin
+    if ((i = NFav) and (NFav > 0)) or ((i = NFav + NRec) and (NRec > 0)) then
+      begin
+      Mi := TMenuItem.Create(Pop);
+      Mi.Caption := '-';
+      Pop.Items.Add(Mi);
+      end;
     Mi := TMenuItem.Create(Pop);
-    Mi.Caption := Mods[i].Disp;
+    if i < NFav then Mi.Caption := '★  ' + Mods[i].Disp else Mi.Caption := Mods[i].Disp;
     Mi.Tag := i;
     Mi.OnClick := @ModPicked;
     Pop.Items.Add(Mi);
@@ -1228,7 +1235,7 @@ var
   I: Integer;
 begin
   I := (Sender as TMenuItem).Tag;
-  if OpenModule(Mods[I].Spec) then GoChapter(1, 1)
+  if OpenModule(Mods[I].Spec) then begin NoteRecent(Mods[I].Spec); GoChapter(1, 1); end
   else ShowMessage('Could not open ' + Mods[I].Disp);
 end;
 
@@ -1402,7 +1409,7 @@ end;
 
 const
   cmOpen = 1; cmPaths = 2; cmCopySel = 3; cmCopyChap = 4; cmQuit = 5; cmTheme = 6; cmBigger = 7; cmSmaller = 8;
-  cmFont = 9; cmStrongs = 14; cmCopyNums = 15; cmGoto = 16; cmKeys = 10; cmAbout = 11; cmFind = 12; cmSelAll = 13; cmXrefs = 17; cmDownload = 18;
+  cmFont = 9; cmStrongs = 14; cmCopyNums = 15; cmGoto = 16; cmKeys = 10; cmAbout = 11; cmFind = 12; cmSelAll = 13; cmXrefs = 17; cmDownload = 18; cmPin = 19;
 
 procedure TMainForm.BuildMenus;
 begin
@@ -1487,6 +1494,12 @@ begin
        Add('Copy the whole chapter', '', cmCopyChap);
        Add('Select chapter text', 'Ctrl+A', cmSelAll);
        Add('', '', 0);
+       if ModSpec <> '' then
+         begin
+         if IsFavorite(ModSpec) then Add('Unpin this module from the top of the list', '', cmPin)
+         else Add('Pin this module to the top of the list', '', cmPin);
+         Add('', '', 0);
+         end;
        Add('Quit', 'Ctrl+Q', cmQuit);
        end;
     1: begin
@@ -1604,6 +1617,7 @@ begin
     cmOpen: ModClick(nil);
     cmPaths: DoPaths;
     cmDownload: DoDownload;
+    cmPin: if ModSpec <> '' then ToggleFavorite(ModSpec);
     cmCopySel: CopyClick(nil);
     cmCopyChap: CopyChapter;
     cmQuit: Close;

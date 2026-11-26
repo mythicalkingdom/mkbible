@@ -10,7 +10,8 @@ program mkbible;
   Left/Right        previous / next chapter
   Up/Down/PgUp/PgDn/Home/End   scroll the chapter text
   Alt+B             Book/Chapter... (a pick list of the 66 books, then of that book's chapters)
-  Alt+O             Open Module...  (a pick list of the modules found on the configured paths)
+  Alt+O             Open Module...  (a pick list of the modules found on the configured paths: pinned ones first
+                    (Del pins / unpins the highlighted one), then the last few opened, then the rest alphabetically)
   Alt+C             Copy Chapter    (the chapter's text, to the system clipboard)
   F10 or Esc        the menu bar    Alt+<letter> also opens a menu directly
   F1                this key list   q             quit }
@@ -315,8 +316,10 @@ procedure DoOpenModule;
 var
   Entries: TModEntries;
   Disp: array of String;
-  i, sel: Integer;
+  i, sel, NFav, NRec, Start: Integer;
   NewBib: AbsBibPtr;
+  Pinned: Boolean;
+  Spec: String;
 begin
   SetLength(Entries, 0);
   for i := 0 to High(Paths) do ScanDir(Paths[i], Entries);
@@ -326,10 +329,21 @@ begin
                       'Use Alt+F, Module Paths... to add one.'], @RedrawScreen);
     Exit;
     end;
-  SetLength(Disp, Length(Entries));
-  for i := 0 to High(Entries) do Disp[i] := Entries[i].Disp;
-  sel := PickList('Open Module', Disp, 0, @RedrawScreen);
-  if sel < 0 then Exit;
+  Start := 0;
+  repeat
+    OrderModules(Entries, NFav, NRec);
+    SetLength(Disp, Length(Entries));
+    for i := 0 to High(Entries) do
+      if i < NFav then Disp[i] := '* ' + Entries[i].Disp else Disp[i] := Entries[i].Disp;
+    sel := PickListDel('Open Module  (Enter opens, Del pins / unpins at the top)', Disp, Start, @RedrawScreen, Pinned);
+    if sel < 0 then Exit;
+    if not Pinned then Break;
+    Spec := Entries[sel].Spec;
+    ToggleFavorite(Spec);
+    OrderModules(Entries, NFav, NRec);
+    Start := 0;
+    for i := 0 to High(Entries) do if Entries[i].Spec = Spec then Start := i;
+  until False;
   NewBib := NewBibObj(Entries[sel].Spec);
   if NewBib^.OpenBible <> bibOk then
     begin
@@ -340,6 +354,7 @@ begin
   if Bib <> nil then begin Bib^.CloseBible; FreeBibObj(Bib); end;
   Bib := NewBib;
   ModSpec := Entries[sel].Spec;
+  NoteRecent(ModSpec);
   CurBook := 1; CurChap := 1;
   LoadChapter;
   SaveLast(ModSpec, CurBook, CurChap);

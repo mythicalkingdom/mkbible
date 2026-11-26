@@ -18,6 +18,10 @@ procedure SaveLast(const ModSpec: String; Book, Chapter: Integer);
   line of that key or adds one }
 function GetSetting(const Key, Default: String): String;
 procedure PutSetting(const Key, Value: String);
+function LoadList(const Key: String): TStringArray;
+  { every 'Key = value' line, in file order (a setting that repeats, like path) }
+procedure SaveList(const Key: String; const Items: TStringArray);
+  { replaces all the Key lines by these, keeping every other line of the file }
 
 implementation
 
@@ -206,6 +210,54 @@ begin
     except
     end;
   finally
+    Lines.Free;
+  end;
+end;
+
+function LoadList(const Key: String): TStringArray;
+var
+  Lines: TStringList;
+  i, N: Integer;
+  K, V: String;
+begin
+  SetLength(Result, 0);
+  N := 0;
+  Lines := TStringList.Create;
+  try
+    ReadLines(Lines);
+    for i := 0 to Lines.Count - 1 do
+      if KeyVal(Lines[i], K, V) and (LowerCase(K) = LowerCase(Key)) and (V <> '') then
+        begin
+        SetLength(Result, N + 1);
+        Result[N] := V;
+        Inc(N);
+        end;
+  finally
+    Lines.Free;
+  end;
+end;
+
+procedure SaveList(const Key: String; const Items: TStringArray);
+var
+  Old, Lines: TStringList;
+  i: Integer;
+  K, V: String;
+begin
+  Old := TStringList.Create;
+  Lines := TStringList.Create;
+  try
+    ReadLines(Old);
+    for i := 0 to Old.Count - 1 do
+      if not (KeyVal(Old[i], K, V) and (LowerCase(K) = LowerCase(Key))) then Lines.Add(Old[i]);
+    for i := 0 to High(Items) do
+      if Items[i] <> '' then Lines.Add(Key + ' = ' + Items[i]);
+    ConfigDir;
+    try
+      Lines.SaveToFile(ConfigFile);
+    except
+    end;
+  finally
+    Old.Free;
     Lines.Free;
   end;
 end;

@@ -14,10 +14,20 @@ type
 procedure AddModEntry(var Arr: TModEntries; const Disp, Spec: String);
 procedure ScanDir(const Dir: String; var Arr: TModEntries);
 
+{ The order of the Open Module list: the modules the user pinned (config lines 'fav = <spec>', in the order they
+  were pinned), then the most recently opened ones (lines 'recent = <spec>', newest first, at most MaxRecent),
+  then everything else alphabetically. }
+const
+  MaxRecent = 5;
+procedure OrderModules(var Arr: TModEntries; out NFav, NRecent: Integer);
+procedure NoteRecent(const Spec: String);
+function IsFavorite(const Spec: String): Boolean;
+function ToggleFavorite(const Spec: String): Boolean;   { True when the module is now pinned }
+
 implementation
 
 uses
-  SysUtils, MKBibMod, MKBibAbs, MKBibAny;
+  SysUtils, Classes, MKBibMod, MKBibAbs, MKBibAny, mkbiblecfg;
 
 procedure AddModEntry(var Arr: TModEntries; const Disp, Spec: String);
 begin
@@ -124,5 +134,98 @@ begin
     end;
 end;
 
+
+
+function IndexOfSpec(const A: TStringArray; const Spec: String): Integer;
+var i: Integer;
+begin
+  Result := -1;
+  for i := 0 to High(A) do if A[i] = Spec then begin Result := i; Exit; end;
+end;
+
+procedure OrderModules(var Arr: TModEntries; out NFav, NRecent: Integer);
+var
+  Fav, Rec: TStringArray;
+  Res: TModEntries;
+  Used: array of Boolean;
+  Rest: TStringList;
+  i, j: Integer;
+begin
+  Fav := LoadList('fav');
+  Rec := LoadList('recent');
+  SetLength(Used, Length(Arr));
+  SetLength(Res, 0);
+  NFav := 0; NRecent := 0;
+  for j := 0 to High(Fav) do
+    for i := 0 to High(Arr) do
+      if (not Used[i]) and (Arr[i].Spec = Fav[j]) then
+        begin AddModEntry(Res, Arr[i].Disp, Arr[i].Spec); Used[i] := True; Inc(NFav); Break; end;
+  for j := 0 to High(Rec) do
+    for i := 0 to High(Arr) do
+      if (not Used[i]) and (Arr[i].Spec = Rec[j]) then
+        begin AddModEntry(Res, Arr[i].Disp, Arr[i].Spec); Used[i] := True; Inc(NRecent); Break; end;
+  Rest := TStringList.Create;
+  try
+    Rest.Sorted := True;
+    Rest.Duplicates := dupAccept;
+    for i := 0 to High(Arr) do
+      if not Used[i] then Rest.AddObject(LowerCase(Arr[i].Disp) + #1 + Format('%.6d', [i]), TObject(PtrInt(i)));
+    for j := 0 to Rest.Count - 1 do
+      begin
+      i := PtrInt(Rest.Objects[j]);
+      AddModEntry(Res, Arr[i].Disp, Arr[i].Spec);
+      end;
+  finally
+    Rest.Free;
+  end;
+  Arr := Res;
+end;
+
+procedure NoteRecent(const Spec: String);
+var
+  Rec, New: TStringArray;
+  i: Integer;
+begin
+  if Spec = '' then Exit;
+  Rec := LoadList('recent');
+  SetLength(New, 1);
+  New[0] := Spec;
+  for i := 0 to High(Rec) do
+    if (Rec[i] <> Spec) and (Length(New) < MaxRecent) then
+      begin
+      SetLength(New, Length(New) + 1);
+      New[High(New)] := Rec[i];
+      end;
+  SaveList('recent', New);
+end;
+
+function IsFavorite(const Spec: String): Boolean;
+begin
+  Result := IndexOfSpec(LoadList('fav'), Spec) >= 0;
+end;
+
+function ToggleFavorite(const Spec: String): Boolean;
+var
+  Fav, New: TStringArray;
+  i: Integer;
+begin
+  Fav := LoadList('fav');
+  if IndexOfSpec(Fav, Spec) >= 0 then
+    begin
+    SetLength(New, 0);
+    for i := 0 to High(Fav) do
+      if Fav[i] <> Spec then
+        begin SetLength(New, Length(New) + 1); New[High(New)] := Fav[i]; end;
+    SaveList('fav', New);
+    Result := False;
+    end
+  else
+    begin
+    SetLength(Fav, Length(Fav) + 1);
+    Fav[High(Fav)] := Spec;
+    SaveList('fav', Fav);
+    Result := True;
+    end;
+end;
 
 end.
