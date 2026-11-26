@@ -76,6 +76,13 @@ folders (`~/.config/mkbible/mkbible.cfg`, `%APPDATA%\mkbible` on Windows).
 
 ![mkbiblegui, the book and chapter picker](docs/mkbiblegui-goto.png)
 
+* **Tabs:** several texts open at once, each with its own module, location and search; font size, theme and the copy
+  settings are shared. Ctrl+T opens a new tab (a copy of this one), Ctrl+W closes it, Ctrl+Tab / Ctrl+Shift+Tab (or
+  Ctrl+Page Down / Up) and Ctrl+1 .. 9 switch. A tab shows the module and place, like `NKJV John 3`, and the tabs are
+  restored next time. To open a reference somewhere else: in a cross reference pop-up click *new tab* (or Ctrl+click the
+  reference), Ctrl+click or middle-click a search hit, or right-click any verse for "open in a new tab" and "open it in
+  another version". Tabs showing the same module share it, so a second tab costs little memory. (The theme moved to
+  Ctrl+Shift+D.)
 * **Go to:** the button next to the arrows (or Ctrl+G) opens every book as a grid, with the chapters of the chosen book
   beside it: two clicks (one for single-chapter books) to any chapter.
 * **Select and copy:** drag across the text (or double-click a word) and press Ctrl+C or the Copy button; with nothing

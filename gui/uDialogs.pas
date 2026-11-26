@@ -15,6 +15,17 @@ procedure StrongsPopup(Owner: TForm; const Th: TTheme; const Title, Body: String
 function DownloadDialog(Owner: TForm; const Th: TTheme): Boolean;
   { the module download list; True if something was installed }
 
+type
+  TRefLink = record
+    Caption, Body: String;     { 'John 3:16' and the verse text }
+    B, C, V: Integer;          { B = 0: not a location we could resolve (shown as plain text) }
+  end;
+  TRefOpenEvent = procedure(B, C, V: Integer; NewTab: Boolean) of object;
+
+procedure RefsPopup(Owner: TForm; const Th: TTheme; const Title: String; const Links: array of TRefLink; Pt: TPoint;
+  OnOpen: TRefOpenEvent);
+  { cross references: each one shows its verse text and two links, to go there in this tab or to open it in a new tab }
+
 implementation
 
 uses mkbiblerepo, mkbiblecfg;
@@ -43,6 +54,11 @@ type
     RepoIdx: Integer;
     LangDone: Boolean;
     Busy, Installed: Boolean;
+    RefOpen: TRefOpenEvent;
+    RefB, RefC, RefV: array of Integer;
+    procedure RefHere(Sender: TObject);
+    procedure RefNew(Sender: TObject);
+    procedure RefClick(Sender: TObject; Button: TMouseButton; Shift: TShiftState; X, Y: Integer);
     procedure DlDraw(Control: TWinControl; Index: Integer; ARect: TRect; State: TOwnerDrawState);
     procedure DlLoad(Sender: TObject);
     procedure DlFillLangs;
@@ -729,6 +745,167 @@ begin
     D.LangNames.Free;
     D.Free;
   end;
+end;
+
+{ ---------------------------------------------------------------- the cross reference pop-up }
+
+procedure TDlg.RefHere(Sender: TObject);
+var I: Integer;
+begin
+  I := (Sender as TControl).Tag;
+  Close;
+  if Assigned(RefOpen) then RefOpen(RefB[I], RefC[I], RefV[I], False);
+end;
+
+procedure TDlg.RefNew(Sender: TObject);
+var I: Integer;
+begin
+  I := (Sender as TControl).Tag;
+  Close;
+  if Assigned(RefOpen) then RefOpen(RefB[I], RefC[I], RefV[I], True);
+end;
+
+{ the reference's own name: a click goes there, Ctrl+click or the middle button opens a new tab }
+procedure TDlg.RefClick(Sender: TObject; Button: TMouseButton; Shift: TShiftState; X, Y: Integer);
+begin
+  if (Button = mbMiddle) or ((Button = mbLeft) and (ssCtrl in Shift)) then RefNew(Sender)
+  else if Button = mbLeft then RefHere(Sender);
+end;
+
+{ the height of Text word wrapped to Width pixels in Font }
+function WrapHeight(C: TCanvas; Font: TFont; const Text: String; Width: Integer): Integer;
+var
+  Lines, P: Integer;
+  Line, Word, Rest: String;
+begin
+  C.Font.Assign(Font);
+  Lines := 0;
+  Rest := StringReplace(Text, LineEnding, ' ' + LineEnding + ' ', [rfReplaceAll]);
+  Line := '';
+  while Rest <> '' do
+    begin
+    P := Pos(' ', Rest);
+    if P = 0 then begin Word := Rest; Rest := ''; end
+    else begin Word := Copy(Rest, 1, P - 1); Rest := Copy(Rest, P + 1, Length(Rest)); end;
+    if Word = LineEnding then begin Inc(Lines); Line := ''; Continue; end;
+    if Word = '' then Continue;
+    if (Line <> '') and (C.TextWidth(Line + ' ' + Word) > Width) then begin Inc(Lines); Line := Word; end
+    else if Line = '' then Line := Word
+    else Line := Line + ' ' + Word;
+    end;
+  if Line <> '' then Inc(Lines);
+  Result := Max(1, Lines) * (C.TextHeight('Ag') + S_(2));
+end;
+
+procedure RefsPopup(Owner: TForm; const Th: TTheme; const Title: String; const Links: array of TRefLink; Pt: TPoint;
+  OnOpen: TRefOpenEvent);
+var
+  F: TDlg;
+  Inner: TPanel;
+  Box: TScrollBox;
+  B: TBCButton;
+  T, L, N, Bd: TLabel;
+  W, H, Y, i: Integer;
+begin
+  if CurPopup <> nil then CurPopup.Close;
+  W := S_(460);
+  H := S_(340);
+  F := TDlg.CreateNew(Owner);
+  CurPopup := F;
+  F.Th := Th;
+  F.RefOpen := OnOpen;
+  SetLength(F.RefB, Length(Links)); SetLength(F.RefC, Length(Links)); SetLength(F.RefV, Length(Links));
+  F.Scaled := False;
+  F.BorderStyle := bsNone;
+  F.FormStyle := fsStayOnTop;
+  F.Position := poDesigned;
+  F.Color := Th.Line;
+  F.Width := W;
+  F.Height := H;
+  F.Left := Max(0, Min(Pt.X + S_(12), Screen.Width - W - S_(8)));
+  F.Top := Max(0, Min(Pt.Y + S_(12), Screen.Height - H - S_(8)));
+  F.KeyPreview := True;
+  F.OnKeyDown := @F.PopupKey;
+  F.OnActivate := @F.PopupActivate;
+  F.OnDeactivate := @F.PopupDeactivate;
+  F.OnClose := @F.PopupClose;
+  Inner := TPanel.Create(F);
+  Inner.Parent := F;
+  Inner.BevelOuter := bvNone;
+  Inner.SetBounds(1, 1, W - 2, H - 2);
+  Inner.Color := Th.Bg;
+  T := TLabel.Create(F);
+  T.Parent := Inner;
+  T.Caption := Title;
+  T.Left := S_(18);
+  T.Top := S_(14);
+  T.Font.Name := Th.SansName;
+  T.Font.Size := 14;
+  T.Font.Style := [fsBold];
+  T.Font.Color := Th.Accent;
+  Box := TScrollBox.Create(F);
+  Box.Parent := Inner;
+  Box.SetBounds(S_(10), S_(48), W - S_(22), H - S_(48) - S_(60));
+  Box.BorderStyle := bsNone;
+  Box.Color := Th.Bg;
+  Box.VertScrollBar.Smooth := True;
+  Box.HorzScrollBar.Visible := False;
+  Y := S_(4);
+  for i := 0 to High(Links) do
+    begin
+    F.RefB[i] := Links[i].B; F.RefC[i] := Links[i].C; F.RefV[i] := Links[i].V;
+    L := TLabel.Create(F);
+    L.Parent := Box;
+    L.Caption := Links[i].Caption;
+    L.Left := S_(8);
+    L.Top := Y;
+    L.Font.Name := Th.SansName;
+    L.Font.Size := 12;
+    L.Font.Style := [fsBold];
+    if Links[i].B > 0 then
+      begin
+      L.Font.Color := Th.Accent;
+      L.Cursor := crHandPoint;
+      L.Tag := i;
+      L.OnMouseUp := @F.RefClick;
+      L.Hint := 'Click to go there, Ctrl+click for a new tab';
+      L.ShowHint := True;
+      N := TLabel.Create(F);
+      N.Parent := Box;
+      N.Caption := 'new tab ↗';
+      N.Font.Name := Th.SansName;
+      N.Font.Size := 10;
+      N.Font.Color := Th.Muted;
+      N.Cursor := crHandPoint;
+      N.Tag := i;
+      N.OnClick := @F.RefNew;
+      N.Left := Box.ClientWidth - S_(24) - N.Width;
+      N.Top := Y + S_(2);
+      end
+    else L.Font.Color := Th.Text;
+    Y := Y + L.Height + S_(2);
+    if Links[i].Body <> '' then
+      begin
+      Bd := TLabel.Create(F);
+      Bd.Parent := Box;
+      Bd.AutoSize := False;
+      Bd.WordWrap := True;
+      Bd.Font.Name := Th.SansName;
+      Bd.Font.Size := 12;
+      Bd.Font.Color := Th.Text;
+      Bd.Caption := Links[i].Body;
+      Bd.SetBounds(S_(8), Y, Box.ClientWidth - S_(30), WrapHeight(F.Canvas, Bd.Font, Links[i].Body, Box.ClientWidth - S_(30)));
+      Y := Y + Bd.Height;
+      end;
+    Y := Y + S_(14);
+    end;
+  B := TBCButton.Create(F);
+  B.Parent := Inner;
+  B.Caption := 'Close';
+  B.SetBounds(W - S_(18) - S_(96) - 2, H - S_(52), S_(96), S_(34));
+  StyleBtn(B, Th, False);
+  B.OnClick := @F.CloseClick;
+  F.Show;
 end;
 
 end.

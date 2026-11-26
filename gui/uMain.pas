@@ -41,11 +41,29 @@ type
     Txt: String;
   end;
 
+  { one open tab: what the reading area shows (the form keeps the live copy of the active tab's values) }
+  TTab = class
+  public
+    Bib: AbsBibPtr;             { shared with the other tabs that show the same module }
+    ModSpec, ModName, Short: String;
+    Book, Chap, ScrollY: Integer;
+    SearchMode: Boolean;
+    HitTerm: String;
+    Hits: array of THit;
+    PendV: Integer;             { verse to scroll to the first time the tab is shown }
+  end;
+
+  TOpenMod = record
+    Spec: String;
+    Bib: AbsBibPtr;
+    Refs: Integer;
+  end;
+
   { TMainForm }
   TMainForm = class(TForm)
   private
     Top_: TPanel;
-    MenuBar, Drop, LocBox, Pane: TBGRAVirtualScreen;
+    MenuBar, Drop, LocBox, Pane, TabBar: TBGRAVirtualScreen;
     BtnMod, BtnPrev, BtnNext, BtnLoc, BtnCopy, BtnSmaller, BtnBigger: TBCButton;
     LocBook, LocHoverB, LocHoverC: Integer;
     LocEntered: Boolean;
@@ -83,6 +101,15 @@ type
     SearchMode: Boolean;
     Hits: array of THit;
     HitTerm: String;
+    Tabs: TList;
+    ActiveTab: Integer;
+    TabRects, TabClose: array of TRect;
+    PlusRect: TRect;
+    TabHover, CloseHover: Integer;
+    Reg: array of TOpenMod;
+    ModMode: Integer;         { 0: the module list replaces the module of this tab, 1: opens the location in a new tab }
+    PendB, PendC, PendV: Integer;
+    PaneMenu: TPopupMenu;
     procedure ShowOnce(Sender: TObject);
     procedure StrongTimer(Sender: TObject);
     procedure NoteTimer(Sender: TObject);
@@ -154,6 +181,26 @@ type
     procedure RunSearch(const Term: String);
     procedure ClampScroll;
     procedure Redraw;
+    function AcquireBib(const Spec: String): AbsBibPtr;
+    procedure ReleaseBib(B: AbsBibPtr);
+    procedure ModNames(B: AbsBibPtr; const Spec: String; out ADesc, AShort: String);
+    procedure UpdateModCaption;
+    procedure SaveTabState;
+    procedure LoadTabState;
+    procedure ActivateTab(I: Integer);
+    function NewTab(const Spec: String; B, C, V, AScroll: Integer; SwitchTo: Boolean): Boolean;
+    procedure CloseTab(I: Integer);
+    function TabTitle(I: Integer): String;
+    procedure TabBarRedraw(Sender: TObject; Bitmap: TBGRABitmap);
+    procedure TabBarMouseMove(Sender: TObject; Shift: TShiftState; X, Y: Integer);
+    procedure TabBarMouseLeave(Sender: TObject);
+    procedure TabBarMouseUp(Sender: TObject; Button: TMouseButton; Shift: TShiftState; X, Y: Integer);
+    procedure ShowHits;
+    procedure ShowModList;
+    procedure ShowPaneMenu(X, Y: Integer);
+    procedure MenuNewTabHere(Sender: TObject);
+    procedure MenuOtherVersion(Sender: TObject);
+    procedure RefOpen(B, C, V: Integer; InNewTab: Boolean);
     procedure SaveState;
     function MeasureText(const S: String; Size: Integer; Bold, Ital: Boolean; Serif: Boolean): Integer;
   public
@@ -168,6 +215,7 @@ implementation
 
 function TopH: Integer; begin Result := S_(60); end;
 function ColMax: Integer; begin Result := S_(700); end;
+function TabH: Integer; begin Result := S_(36); end;
 
 var
   Mz: TBGRABitmap;
@@ -175,13 +223,14 @@ var
 
 const
   SearchHint = 'Search the Bible…';
+  cmNewTab = 20; cmCloseTab = 21;
 
 { ------------------------------------------------------------------ construction }
 
 constructor TMainForm.Create(TheOwner: TComponent);
 var
   Cur: String;
-  B, C: Integer;
+  B, C, N, i, P2: Integer;
 begin
   inherited CreateNew(TheOwner);
   Scaled := False;
@@ -208,17 +257,39 @@ begin
   FontSize := S_(FontBase);
   Dark := GetSetting('gui.dark', '0') = '1';
   Bib := nil;
+  Tabs := TList.Create; ActiveTab := -1; TabHover := -1; CloseHover := -1; ModMode := 0;
   DictG := nil; DictH := nil; HoverRun := -1;
   CopyNums := GetSetting('gui.copy.numbers', '1') = '1';
   ShowXrefs := GetSetting('gui.xrefs', '1') = '1';
   CurBook := 1; CurChap := 1;
   BuildUI;
   ApplyTheme;
-  Cur := GetSetting('gui.module', '');
-  B := StrToIntDef(GetSetting('gui.book', '1'), 1);
-  C := StrToIntDef(GetSetting('gui.chapter', '1'), 1);
-  if Cur = '' then LoadLast(Cur, B, C);
-  if (Cur <> '') and OpenModule(Cur) then GoChapter(B, C);
+  { the tabs of last time; else one tab with the last module }
+  N := StrToIntDef(GetSetting('gui.tabs', '0'), 0);
+  for i := 1 to N do
+    begin
+    Cur := GetSetting('gui.tab.' + IntToStr(i), '');
+    P2 := LastDelimiter('|', Cur);
+    if P2 > 0 then
+      begin
+      C := StrToIntDef(Copy(Cur, P2 + 1, 20), 1);
+      Cur := Copy(Cur, 1, P2 - 1);
+      P2 := LastDelimiter('|', Cur);
+      if P2 > 0 then begin B := StrToIntDef(Copy(Cur, P2 + 1, 20), 1); Cur := Copy(Cur, 1, P2 - 1); end else B := 1;
+      if Cur <> '' then NewTab(Cur, B, C, 0, 0, False);
+      end;
+    end;
+  if Tabs.Count > 0 then
+    ActivateTab(Max(0, Min(Tabs.Count - 1, StrToIntDef(GetSetting('gui.tab.active', '1'), 1) - 1)))
+  else
+    begin
+    Cur := GetSetting('gui.module', '');
+    B := StrToIntDef(GetSetting('gui.book', '1'), 1);
+    C := StrToIntDef(GetSetting('gui.chapter', '1'), 1);
+    if Cur = '' then LoadLast(Cur, B, C);
+    NewTab('', 1, 1, 0, 0, True);
+    if (Cur <> '') and OpenModule(Cur) then GoChapter(B, C);
+    end;
   DoResize(nil);
   OnShow := @ShowOnce;
 end;
@@ -288,9 +359,16 @@ begin
 end;
 
 destructor TMainForm.Destroy;
+var
+  i: Integer;
 begin
   SaveState;
-  if Bib <> nil then begin Bib^.CloseBible; FreeBibObj(Bib); end;
+  for i := 0 to Tabs.Count - 1 do TTab(Tabs[i]).Free;
+  Tabs.Free;
+  for i := 0 to High(Reg) do
+    if Reg[i].Bib <> nil then begin Reg[i].Bib^.CloseBible; FreeBibObj(Reg[i].Bib); end;
+  SetLength(Reg, 0);
+  Bib := nil;
   FreeDictObj(DictG);
   FreeDictObj(DictH);
   Mz.Free;
@@ -337,6 +415,14 @@ begin
   MenuBar.OnMouseMove := @MenuBarMouseMove;
   MenuBar.OnMouseLeave := @MenuBarMouseLeave;
   MenuBar.OnMouseUp := @MenuBarMouseUp;
+  TabBar := TBGRAVirtualScreen.Create(Self);
+  TabBar.Parent := Self;
+  TabBar.Align := alTop;
+  TabBar.Height := TabH;
+  TabBar.OnRedraw := @TabBarRedraw;
+  TabBar.OnMouseMove := @TabBarMouseMove;
+  TabBar.OnMouseLeave := @TabBarMouseLeave;
+  TabBar.OnMouseUp := @TabBarMouseUp;
   Pane := TBGRAVirtualScreen.Create(Self);
   Pane.Parent := Self;
   Pane.Align := alClient;
@@ -369,6 +455,7 @@ begin
   SearchEd.OnExit := @SearchExit;
   SearchEd.OnKeyDown := @SearchKey;
   Pop := TPopupMenu.Create(Self);
+  PaneMenu := TPopupMenu.Create(Self);
   Drop := TBGRAVirtualScreen.Create(Self);
   Drop.Parent := Self;
   Drop.Visible := False;
@@ -383,6 +470,9 @@ begin
   LocBox.OnMouseMove := @LocMove;
   LocBox.OnMouseLeave := @LocLeave;
   LocBox.OnMouseUp := @LocUp;
+  MenuBar.Top := 0;
+  TabBar.Top := MenuBar.Height;
+  Top_.Top := MenuBar.Height + TabBar.Height;
   MenuOpen := -1; MenuHover := -1; DropHover := -1;
   BuildMenus;
 end;
@@ -436,25 +526,297 @@ end;
 
 { ------------------------------------------------------------------ the module and the chapter }
 
-function TMainForm.OpenModule(const Spec: String): Boolean;
+{ ------------------------------------------------------------------ open modules, shared by the tabs that show them }
+
+function TMainForm.AcquireBib(const Spec: String): AbsBibPtr;
 var
+  i: Integer;
   NB: AbsBibPtr;
 begin
-  Result := False;
+  Result := nil;
+  for i := 0 to High(Reg) do
+    if Reg[i].Spec = Spec then begin Inc(Reg[i].Refs); Result := Reg[i].Bib; Exit; end;
   NB := NewBibObj(Spec);
   if NB^.OpenBible <> bibOk then begin FreeBibObj(NB); Exit; end;
-  if Bib <> nil then begin Bib^.CloseBible; FreeBibObj(Bib); end;
-  Bib := NB;
-  ModSpec := Spec;
-  ModName := Bib^.GetDescription;
-  if ModName = '' then ModName := Bib^.GetName;
-  if ModName = '' then ModName := ExtractFileName(Spec);
+  SetLength(Reg, Length(Reg) + 1);
+  Reg[High(Reg)].Spec := Spec;
+  Reg[High(Reg)].Bib := NB;
+  Reg[High(Reg)].Refs := 1;
+  Result := NB;
+end;
+
+procedure TMainForm.ReleaseBib(B: AbsBibPtr);
+var
+  i, j: Integer;
+begin
+  if B = nil then Exit;
+  for i := 0 to High(Reg) do
+    if Reg[i].Bib = B then
+      begin
+      Dec(Reg[i].Refs);
+      if Reg[i].Refs <= 0 then
+        begin
+        B^.CloseBible;
+        FreeBibObj(B);
+        for j := i to High(Reg) - 1 do Reg[j] := Reg[j + 1];
+        SetLength(Reg, Length(Reg) - 1);
+        end;
+      Exit;
+      end;
+end;
+
+procedure TMainForm.ModNames(B: AbsBibPtr; const Spec: String; out ADesc, AShort: String);
+begin
+  if B = nil then begin ADesc := ''; AShort := 'New tab'; Exit; end;
+  ADesc := B^.GetDescription;
+  if ADesc = '' then ADesc := B^.GetName;
+  if ADesc = '' then ADesc := ExtractFileName(Spec);
+  AShort := Trim(B^.GetName);
+  if AShort = '' then AShort := ChangeFileExt(ExtractFileName(Spec), '');
+  if UTF8Length(AShort) > 14 then AShort := UTF8Copy(AShort, 1, 13) + '…';
+end;
+
+procedure TMainForm.UpdateModCaption;
+begin
+  if Bib = nil then begin BtnMod.Caption := 'Open module'; BtnMod.Hint := ''; Exit; end;
   if UTF8Length(ModName) > 25 then BtnMod.Caption := UTF8Copy(ModName, 1, 24) + '…' else BtnMod.Caption := ModName;
   BtnMod.Hint := ModName;
   BtnMod.ShowHint := True;
+end;
+
+function TMainForm.OpenModule(const Spec: String): Boolean;
+var
+  NB: AbsBibPtr;
+  Short: String;
+begin
+  Result := False;
+  NB := AcquireBib(Spec);
+  if NB = nil then Exit;
+  if Bib <> nil then ReleaseBib(Bib);
+  Bib := NB;
+  ModSpec := Spec;
+  ModNames(Bib, Spec, ModName, Short);
+  if (ActiveTab >= 0) and (ActiveTab < Tabs.Count) then TTab(Tabs[ActiveTab]).Short := Short;
+  UpdateModCaption;
   SearchMode := False;
   CurBook := 1; CurChap := 1;
   Result := True;
+end;
+
+{ ------------------------------------------------------------------ tabs }
+
+procedure TMainForm.SaveTabState;
+var
+  T: TTab;
+begin
+  if (ActiveTab < 0) or (ActiveTab >= Tabs.Count) then Exit;
+  T := TTab(Tabs[ActiveTab]);
+  T.Bib := Bib; T.ModSpec := ModSpec; T.ModName := ModName;
+  T.Book := CurBook; T.Chap := CurChap; T.ScrollY := ScrollY;
+  T.SearchMode := SearchMode; T.HitTerm := HitTerm; T.Hits := Hits;
+end;
+
+procedure TMainForm.LoadTabState;
+var
+  T: TTab;
+begin
+  if (ActiveTab < 0) or (ActiveTab >= Tabs.Count) then Exit;
+  T := TTab(Tabs[ActiveTab]);
+  Bib := T.Bib; ModSpec := T.ModSpec; ModName := T.ModName;
+  CurBook := T.Book; CurChap := T.Chap;
+  Hits := T.Hits; HitTerm := T.HitTerm;
+  ClearSel;
+  HoverRun := -1;
+  UpdateModCaption;
+  if Bib = nil then
+    begin
+    SearchMode := False;
+    SetLength(Toks, 0); SetLength(Runs, 0); SetLength(VerseY, 0);
+    ContentH := 0; ScrollY := 0;
+    TitleLbl.Caption := '';
+    BtnLoc.Caption := 'Go to…';
+    end
+  else if T.SearchMode then
+    begin
+    BtnLoc.Caption := Bib^.GetBookName(CurBook) + ' ' + IntToStr(CurChap) + '  ▾';
+    ShowHits;
+    ScrollY := T.ScrollY; ClampScroll;
+    end
+  else if T.PendV > 0 then
+    begin
+    GoVerse(CurBook, CurChap, T.PendV);
+    T.PendV := 0;
+    end
+  else
+    begin
+    GoChapter(CurBook, CurChap);
+    ScrollY := T.ScrollY; ClampScroll;
+    end;
+  { the search box shows this tab's search }
+  if SearchMode then begin Hinting := False; SearchEd.Text := HitTerm; SearchEd.Font.Color := Theme.Text; end
+  else begin Hinting := True; SearchEd.Text := SearchHint; SearchEd.Font.Color := Theme.Muted; end;
+  Redraw;
+  if Visible and Pane.CanFocus then Pane.SetFocus;
+end;
+
+procedure TMainForm.ActivateTab(I: Integer);
+begin
+  if (I < 0) or (I >= Tabs.Count) then Exit;
+  if I <> ActiveTab then
+    begin
+    SaveTabState;
+    ActiveTab := I;
+    end;
+  LoadTabState;
+end;
+
+function TMainForm.NewTab(const Spec: String; B, C, V, AScroll: Integer; SwitchTo: Boolean): Boolean;
+var
+  T: TTab;
+  NB: AbsBibPtr;
+begin
+  Result := False;
+  NB := nil;
+  if Spec <> '' then
+    begin
+    NB := AcquireBib(Spec);
+    if NB = nil then Exit;
+    end;
+  T := TTab.Create;
+  T.Bib := NB; T.ModSpec := Spec;
+  ModNames(NB, Spec, T.ModName, T.Short);
+  T.Book := B; T.Chap := C; T.ScrollY := AScroll; T.PendV := V; T.SearchMode := False; T.HitTerm := '';
+  if Tabs.Count > 0 then SaveTabState;
+  { next to the tab it was opened from, as a browser does }
+  if (ActiveTab >= 0) and (ActiveTab < Tabs.Count) then Tabs.Insert(ActiveTab + 1, T) else Tabs.Add(T);
+  if SwitchTo then ActivateTab(Tabs.IndexOf(T)) else Redraw;
+  Result := True;
+end;
+
+procedure TMainForm.CloseTab(I: Integer);
+var
+  T: TTab;
+  WasActive: Boolean;
+begin
+  if (Tabs.Count <= 1) or (I < 0) or (I >= Tabs.Count) then Exit;
+  SaveTabState;
+  T := TTab(Tabs[I]);
+  WasActive := I = ActiveTab;
+  if WasActive then Bib := nil;
+  if T.Bib <> nil then ReleaseBib(T.Bib);
+  T.Free;
+  Tabs.Delete(I);
+  if WasActive then
+    begin
+    ActiveTab := Min(I, Tabs.Count - 1);
+    LoadTabState;
+    end
+  else if I < ActiveTab then Dec(ActiveTab);
+  Redraw;
+end;
+
+{ 'NKJV John 3', or the module and the search for a tab showing search results }
+function TMainForm.TabTitle(I: Integer): String;
+var
+  T: TTab;
+begin
+  T := TTab(Tabs[I]);
+  if T.Bib = nil then Result := 'New tab'
+  else if T.SearchMode then Result := T.Short + ' “' + T.HitTerm + '”'
+  else Result := T.Short + ' ' + T.Bib^.GetBookName(T.Book) + ' ' + IntToStr(T.Chap);
+end;
+
+procedure TMainForm.TabBarRedraw(Sender: TObject; Bitmap: TBGRABitmap);
+var
+  i, X, W, N, PlusW, Avail, CW: Integer;
+  Ttl: String;
+  Act, Hov: Boolean;
+begin
+  SaveTabState;
+  Bitmap.Fill(Pix(Theme.Bg));
+  Bitmap.FontQuality := fqFineAntialiasing;
+  Bitmap.FontName := SansName;
+  Bitmap.FontHeight := S_(14);
+  N := Tabs.Count;
+  SetLength(TabRects, N);
+  SetLength(TabClose, N);
+  PlusW := S_(32);
+  Avail := TabBar.Width - S_(20) - PlusW - S_(6);
+  W := Max(S_(96), Min(S_(220), Avail div Max(1, N)));
+  CW := S_(18);
+  X := S_(10);
+  for i := 0 to N - 1 do
+    begin
+    Act := i = ActiveTab;
+    Hov := i = TabHover;
+    TabRects[i] := Rect(X, S_(3), X + W - S_(4), TabBar.Height - S_(3));
+    TabClose[i] := Rect(TabRects[i].Right - CW - S_(6), TabRects[i].Top + (TabRects[i].Bottom - TabRects[i].Top - CW) div 2,
+                        TabRects[i].Right - S_(6), TabRects[i].Top + (TabRects[i].Bottom - TabRects[i].Top - CW) div 2 + CW);
+    if Act then Bitmap.FillRoundRectAntialias(TabRects[i].Left, TabRects[i].Top, TabRects[i].Right, TabRects[i].Bottom, S_(8), S_(8), Pix(Theme.AccentSoft))
+    else if Hov then Bitmap.FillRoundRectAntialias(TabRects[i].Left, TabRects[i].Top, TabRects[i].Right, TabRects[i].Bottom, S_(8), S_(8), Pix(Theme.Hover));
+    Ttl := TabTitle(i);
+    Avail := TabRects[i].Right - TabRects[i].Left - S_(24) - IfThen((N > 1) and (Act or Hov), CW + S_(2), 0);
+    while (UTF8Length(Ttl) > 2) and (Bitmap.TextSize(Ttl).cx > Avail) do
+      Ttl := UTF8Copy(Ttl, 1, UTF8Length(Ttl) - 2) + '…';
+    if Act then Bitmap.FontStyle := [fsBold] else Bitmap.FontStyle := [];
+    Bitmap.TextOut(TabRects[i].Left + S_(12), TabRects[i].Top + (TabRects[i].Bottom - TabRects[i].Top - Bitmap.TextSize(Ttl).cy) div 2,
+      Ttl, Pix(IfThen(Act, Theme.Text, Theme.Muted)));
+    Bitmap.FontStyle := [];
+    if (N > 1) and (Act or Hov) then
+      begin
+      if i = CloseHover then
+        Bitmap.FillRoundRectAntialias(TabClose[i].Left, TabClose[i].Top, TabClose[i].Right, TabClose[i].Bottom, S_(5), S_(5), Pix(Theme.Line));
+      Bitmap.TextOut(TabClose[i].Left + (CW - Bitmap.TextSize('×').cx) div 2, TabClose[i].Top + (CW - Bitmap.TextSize('×').cy) div 2,
+        '×', Pix(Theme.Muted));
+      end;
+    X := X + W;
+    end;
+  PlusRect := Rect(X + S_(2), S_(3), X + S_(2) + PlusW, TabBar.Height - S_(3));
+  if TabHover = -2 then
+    Bitmap.FillRoundRectAntialias(PlusRect.Left, PlusRect.Top, PlusRect.Right, PlusRect.Bottom, S_(8), S_(8), Pix(Theme.Hover));
+  Bitmap.FontHeight := S_(18);
+  Bitmap.TextOut(PlusRect.Left + (PlusW - Bitmap.TextSize('+').cx) div 2,
+    PlusRect.Top + (PlusRect.Bottom - PlusRect.Top - Bitmap.TextSize('+').cy) div 2, '+', Pix(Theme.Muted));
+end;
+
+procedure TMainForm.TabBarMouseMove(Sender: TObject; Shift: TShiftState; X, Y: Integer);
+var
+  i, H, C: Integer;
+begin
+  H := -1; C := -1;
+  for i := 0 to High(TabRects) do
+    if PtInRect(TabRects[i], Point(X, Y)) then
+      begin
+      H := i;
+      if PtInRect(TabClose[i], Point(X, Y)) then C := i;
+      end;
+  if PtInRect(PlusRect, Point(X, Y)) then H := -2;
+  if (H <> TabHover) or (C <> CloseHover) then begin TabHover := H; CloseHover := C; TabBar.DiscardBitmap; end;
+end;
+
+procedure TMainForm.TabBarMouseLeave(Sender: TObject);
+begin
+  if (TabHover <> -1) or (CloseHover <> -1) then begin TabHover := -1; CloseHover := -1; TabBar.DiscardBitmap; end;
+end;
+
+procedure TMainForm.TabBarMouseUp(Sender: TObject; Button: TMouseButton; Shift: TShiftState; X, Y: Integer);
+var
+  i: Integer;
+begin
+  CloseDrop;
+  if PtInRect(PlusRect, Point(X, Y)) then
+    begin
+    if Button = mbLeft then DoCommand(cmNewTab);
+    Exit;
+    end;
+  for i := 0 to High(TabRects) do
+    if PtInRect(TabRects[i], Point(X, Y)) then
+      begin
+      if (Button = mbMiddle) or ((Button = mbLeft) and (Tabs.Count > 1) and PtInRect(TabClose[i], Point(X, Y)) and ((i = ActiveTab) or (i = TabHover))) then
+        begin CloseTab(i); TabHover := -1; CloseHover := -1; end
+      else if Button = mbLeft then ActivateTab(i);
+      Exit;
+      end;
 end;
 
 procedure TMainForm.GoChapter(B, C: Integer);
@@ -877,6 +1239,7 @@ end;
 procedure TMainForm.Redraw;
 begin
   if MenuBar <> nil then MenuBar.DiscardBitmap;
+  if TabBar <> nil then TabBar.DiscardBitmap;
   if Pane <> nil then Pane.DiscardBitmap;
   if LocBox <> nil then LocBox.DiscardBitmap;
 end;
@@ -998,6 +1361,7 @@ var
   i, H: Integer;
 begin
   Selecting := False;
+  if Button = mbRight then begin ShowPaneMenu(X, Y); Exit; end;
   if Moved then Exit;
   if HasSel then begin ClearSel; Redraw; end;
   if (not SearchMode) and (Button = mbLeft) then
@@ -1014,15 +1378,102 @@ begin
       begin
       if (Runs[i].T.Ref >= 0) and (Runs[i].T.Ref < Length(Hits)) then
         begin
-        SearchMode := False;
-        GoVerse(Hits[Runs[i].T.Ref].B, Hits[Runs[i].T.Ref].C, Hits[Runs[i].T.Ref].V);
+        if (Button = mbMiddle) or (ssCtrl in Shift) then
+          NewTab(ModSpec, Hits[Runs[i].T.Ref].B, Hits[Runs[i].T.Ref].C, Hits[Runs[i].T.Ref].V, 0, True)
+        else
+          begin
+          SearchMode := False;
+          GoVerse(Hits[Runs[i].T.Ref].B, Hits[Runs[i].T.Ref].C, Hits[Runs[i].T.Ref].V);
+          end;
         end;
       Exit;
       end;
 end;
 
+{ right click in the text: where the click is decides the location the items work on }
+procedure TMainForm.ShowPaneMenu(X, Y: Integer);
+var
+  R, Ref: Integer;
+  Mi: TMenuItem;
+  P: TPoint;
+begin
+  if Bib = nil then Exit;
+  Ref := -1;
+  R := HitPos(X, Y).Run;
+  if (R >= 0) and (R <= High(Runs)) then Ref := Runs[R].T.Ref;
+  if SearchMode then
+    begin
+    if (Ref < 0) or (Ref > High(Hits)) then Exit;
+    PendB := Hits[Ref].B; PendC := Hits[Ref].C; PendV := Hits[Ref].V;
+    end
+  else
+    begin
+    PendB := CurBook; PendC := CurChap;
+    if Ref >= 1 then PendV := Ref else PendV := 1;
+    end;
+  PaneMenu.Items.Clear;
+  Mi := TMenuItem.Create(PaneMenu);
+  Mi.Caption := 'Open ' + Bib^.GetBookName(PendB) + ' ' + IntToStr(PendC) + ':' + IntToStr(PendV) + ' in a new tab';
+  Mi.OnClick := @MenuNewTabHere;
+  PaneMenu.Items.Add(Mi);
+  Mi := TMenuItem.Create(PaneMenu);
+  Mi.Caption := 'Open it in another version…';
+  Mi.OnClick := @MenuOtherVersion;
+  PaneMenu.Items.Add(Mi);
+  Mi := TMenuItem.Create(PaneMenu);
+  Mi.Caption := '-';
+  PaneMenu.Items.Add(Mi);
+  Mi := TMenuItem.Create(PaneMenu);
+  Mi.Caption := 'Copy';
+  Mi.OnClick := @CopyClick;
+  PaneMenu.Items.Add(Mi);
+  P := Pane.ClientToScreen(Point(X, Y));
+  PaneMenu.PopUp(P.X, P.Y);
+end;
+
+procedure TMainForm.MenuNewTabHere(Sender: TObject);
+begin
+  NewTab(ModSpec, PendB, PendC, PendV, 0, True);
+end;
+
+procedure TMainForm.MenuOtherVersion(Sender: TObject);
+begin
+  ModMode := 1;
+  ShowModList;
+end;
+
+{ a reference from a cross reference pop-up }
+procedure TMainForm.RefOpen(B, C, V: Integer; InNewTab: Boolean);
+begin
+  if InNewTab then NewTab(ModSpec, B, C, V, 0, True)
+  else
+    begin
+    SearchMode := False;
+    GoVerse(B, C, V);
+    end;
+end;
+
 procedure TMainForm.FormKey(Sender: TObject; var Key: Word; Shift: TShiftState);
 begin
+  { tab keys work wherever the focus is }
+  if ssCtrl in Shift then
+    case Key of
+      VK_T: begin DoCommand(cmNewTab); Key := 0; Exit; end;
+      VK_W: begin DoCommand(cmCloseTab); Key := 0; Exit; end;
+      VK_TAB, VK_NEXT, VK_PRIOR:
+        if (Key = VK_TAB) or (Tabs.Count > 1) then
+          begin
+          if (Key = VK_PRIOR) or ((Key = VK_TAB) and (ssShift in Shift)) then ActivateTab((ActiveTab + Tabs.Count - 1) mod Tabs.Count)
+          else ActivateTab((ActiveTab + 1) mod Tabs.Count);
+          Key := 0; Exit;
+          end;
+      VK_1..VK_9:
+        begin
+        if Key = VK_9 then ActivateTab(Tabs.Count - 1) else ActivateTab(Key - VK_1);
+        Key := 0; Exit;
+        end;
+      VK_D: if ssShift in Shift then begin ThemeClick(nil); Key := 0; Exit; end;
+    end;
   if SearchEd.Focused then Exit;
   case Key of
     VK_LEFT: begin PrevClick(nil); Key := 0; end;
@@ -1038,7 +1489,6 @@ begin
     VK_C: if ssCtrl in Shift then begin CopyClick(nil); Key := 0; end;
     VK_A: if ssCtrl in Shift then begin DoCommand(13); Key := 0; end;
     VK_Q: if ssCtrl in Shift then begin Close; Key := 0; end;
-    VK_T: if ssCtrl in Shift then begin ThemeClick(nil); Key := 0; end;
     VK_R: if ssCtrl in Shift then begin DoCommand(17); Key := 0; end;
     VK_ADD, VK_OEM_PLUS: if ssCtrl in Shift then begin BiggerClick(nil); Key := 0; end;
     VK_SUBTRACT, VK_OEM_MINUS: if ssCtrl in Shift then begin SmallerClick(nil); Key := 0; end;
@@ -1078,6 +1528,30 @@ begin
     end;
 end;
 
+{ the search results of Hits / HitTerm as the reading area }
+procedure TMainForm.ShowHits;
+var
+  N: Integer;
+begin
+  SearchMode := True;
+  ClearSel;
+  SetLength(Toks, 0);
+  for N := 0 to High(Hits) do
+    begin
+    SetLength(Toks, Length(Toks) + 1);
+    with Toks[High(Toks)] do
+      begin
+      Txt := Bib^.GetBookName(Hits[N].B) + ' ' + IntToStr(Hits[N].C) + ':' + IntToStr(Hits[N].V);
+      Kind := tkHead; Ref := N; Red := False; Ital := False; Bold := True; Mark := False; Strong := ''; Glue := False; Note := ''; NoteX := False;
+      end;
+    AddPlainToks(Hits[N].Txt, N);
+    end;
+  TitleLbl.Caption := IntToStr(Length(Hits)) + ' verses for “' + HitTerm + '”';
+  LayoutRuns;
+  ScrollY := 0;
+  Redraw;
+end;
+
 procedure TMainForm.RunSearch(const Term: String);
 var
   B, C, V, N: Integer;
@@ -1111,23 +1585,7 @@ begin
   finally
     Screen.Cursor := crDefault;
   end;
-  SearchMode := True;
-  ClearSel;
-  SetLength(Toks, 0);
-  for N := 0 to High(Hits) do
-    begin
-    SetLength(Toks, Length(Toks) + 1);
-    with Toks[High(Toks)] do
-      begin
-      Txt := Bib^.GetBookName(Hits[N].B) + ' ' + IntToStr(Hits[N].C) + ':' + IntToStr(Hits[N].V);
-      Kind := tkHead; Ref := N; Red := False; Ital := False; Bold := True; Mark := False; Strong := ''; Glue := False; Note := ''; NoteX := False;
-      end;
-    AddPlainToks(Hits[N].Txt, N);
-    end;
-  TitleLbl.Caption := IntToStr(Length(Hits)) + ' verses for “' + Term + '”';
-  LayoutRuns;
-  ScrollY := 0;
-  Redraw;
+  ShowHits;
   if Pane.CanFocus then Pane.SetFocus;
 end;
 
@@ -1189,6 +1647,12 @@ begin
 end;
 
 procedure TMainForm.ModClick(Sender: TObject);
+begin
+  ModMode := 0;
+  ShowModList;
+end;
+
+procedure TMainForm.ShowModList;
 var
   Paths: TStringArray;
   NFav, NRec, i: Integer;
@@ -1226,7 +1690,7 @@ begin
     Mi.OnClick := @ModPicked;
     Pop.Items.Add(Mi);
     end;
-  P := BtnMod.ClientToScreen(Point(0, BtnMod.Height + 4));
+  if ModMode = 1 then P := Mouse.CursorPos else P := BtnMod.ClientToScreen(Point(0, BtnMod.Height + 4));
   Pop.PopUp(P.X, P.Y);
 end;
 
@@ -1235,6 +1699,13 @@ var
   I: Integer;
 begin
   I := (Sender as TMenuItem).Tag;
+  if ModMode = 1 then
+    begin
+    ModMode := 0;
+    if NewTab(Mods[I].Spec, PendB, PendC, PendV, 0, True) then NoteRecent(Mods[I].Spec)
+    else ShowMessage('Could not open ' + Mods[I].Disp);
+    Exit;
+    end;
   if OpenModule(Mods[I].Spec) then begin NoteRecent(Mods[I].Spec); GoChapter(1, 1); end
   else ShowMessage('Could not open ' + Mods[I].Disp);
 end;
@@ -1296,7 +1767,7 @@ begin
   LocHoverB := 0; LocHoverC := -1;
   LocEntered := False;
   LocLayout;
-  LocBox.SetBounds(Max(S_(8), Min(BtnPrev.Left, ClientWidth - LocW - S_(8))), MenuBar.Height + TopH, LocW, LocH);
+  LocBox.SetBounds(Max(S_(8), Min(BtnPrev.Left, ClientWidth - LocW - S_(8))), MenuBar.Height + TabH + TopH, LocW, LocH);
   LocBox.Visible := True;
   LocBox.BringToFront;
   LocBox.DiscardBitmap;
@@ -1489,6 +1960,8 @@ begin
   case Idx of
     0: begin
        Add('Open module…', 'Ctrl+O', cmOpen);
+       Add('New tab', 'Ctrl+T', cmNewTab);
+       if Tabs.Count > 1 then Add('Close tab', 'Ctrl+W', cmCloseTab);
        Add('', '', 0);
        Add('Copy (selection, else the chapter)', 'Ctrl+C', cmCopySel);
        Add('Copy the whole chapter', '', cmCopyChap);
@@ -1506,7 +1979,7 @@ begin
        Add('Larger text', 'Ctrl++', cmBigger);
        Add('Smaller text', 'Ctrl+−', cmSmaller);
        Add('', '', 0);
-       if Dark then Add('Light theme', 'Ctrl+T', cmTheme) else Add('Dark theme', 'Ctrl+T', cmTheme);
+       if Dark then Add('Light theme', 'Ctrl+Shift+D', cmTheme) else Add('Dark theme', 'Ctrl+Shift+D', cmTheme);
        Add('', '', 0);
        Add('Go to book and chapter…', 'Ctrl+G', cmGoto);
        Add('Find in the Bible', 'Ctrl+F', cmFind);
@@ -1615,6 +2088,8 @@ var
 begin
   case Cmd of
     cmOpen: ModClick(nil);
+    cmNewTab: NewTab(ModSpec, CurBook, CurChap, 0, ScrollY, True);
+    cmCloseTab: CloseTab(ActiveTab);
     cmPaths: DoPaths;
     cmDownload: DoDownload;
     cmPin: if ModSpec <> '' then ToggleFavorite(ModSpec);
@@ -1659,7 +2134,10 @@ begin
       'Ctrl+C: copy the selected text (the whole chapter when nothing is selected)' + LineEnding +
       'Ctrl+A: select the chapter text' + LineEnding +
       'Ctrl++ / Ctrl+−: text size' + LineEnding +
-      'Ctrl+T: light / dark theme' + LineEnding +
+      'Ctrl+Shift+D: light / dark theme' + LineEnding +
+      'Ctrl+T: new tab (a copy of this one), Ctrl+W: close it' + LineEnding +
+      'Ctrl+Tab / Ctrl+Shift+Tab (or Ctrl+Page Down / Up): next / previous tab, Ctrl+1 .. 9: a tab' + LineEnding +
+      'Right click the text: open the verse in a new tab or in another version' + LineEnding +
       'Ctrl+Q: quit' + LineEnding + LineEnding +
       'Select text with the mouse (drag, or double-click a word).');
     cmAbout: InfoDialog(Self, Theme, 'About mkbible',
@@ -1974,9 +2452,10 @@ end;
 
 procedure TMainForm.ShowNote(RunIdx, SX, SY: Integer);
 var
-  Body, Item, Human, Lbl: String;
+  Item, Human, Lbl, Txt: String;
   Items: TStringList;
-  i, V, V2, P: Integer;
+  Links: array of TRefLink;
+  i, V, V2, P, K: Integer;
   R, R2: BibRef;
   Ok: Boolean;
   Pt: TPoint;
@@ -1998,12 +2477,11 @@ begin
     Items.Delimiter := ';';
     Items.StrictDelimiter := True;
     Items.DelimitedText := Runs[RunIdx].T.Note;
-    Body := '';
+    SetLength(Links, 0);
     for i := 0 to Items.Count - 1 do
       begin
       Item := Trim(Items[i]);
       if Item = '' then Continue;
-      if Body <> '' then Body := Body + LineEnding + LineEnding;
       { a range (Gen.1.1-Gen.1.3, or John 1:1-3) is looked up as its first verse and the verses up to the last }
       V2 := 0;
       Human := Human_(Item);
@@ -2017,22 +2495,29 @@ begin
         end;
       Ok := (Bib <> nil) and Bib^.ParseRef(Human, R);
       if Ok and (not Bib^.ValidRef(R.Book, R.Chapter, R.Verse)) then Ok := False;
-      if not Ok then begin Body := Body + Item; Continue; end;
+      K := Length(Links);
+      SetLength(Links, K + 1);
+      Links[K].B := 0; Links[K].C := 0; Links[K].V := 0; Links[K].Body := '';
+      if not Ok then begin Links[K].Caption := Item; Continue; end;
       if (V2 < R.Verse) or (V2 > R.Verse + 11) then V2 := R.Verse;
       Lbl := Bib^.GetBookName(R.Book) + ' ' + IntToStr(R.Chapter) + ':' + IntToStr(R.Verse);
       if V2 > R.Verse then Lbl := Lbl + '–' + IntToStr(V2);
-      Body := Body + Lbl;
+      Links[K].Caption := Lbl;
+      Links[K].B := R.Book; Links[K].C := R.Chapter; Links[K].V := R.Verse;
+      Txt := '';
       for V := R.Verse to V2 do
         if Bib^.ValidRef(R.Book, R.Chapter, V) then
           begin
           Bib^.SetRef(R.Book, R.Chapter, V);
-          Body := Body + LineEnding + Trim(Bib^.GetVerseText);
+          if Txt <> '' then Txt := Txt + LineEnding;
+          Txt := Txt + Trim(Bib^.GetVerseText);
           end;
+      Links[K].Body := Txt;
       end;
   finally
     Items.Free;
   end;
-  StrongsPopup(Self, Theme, 'Cross references', Body, Pt);
+  RefsPopup(Self, Theme, 'Cross references', Links, Pt, @RefOpen);
 end;
 
 procedure TMainForm.DoStrongsDict;
@@ -2051,9 +2536,16 @@ begin
 end;
 
 procedure TMainForm.SaveState;
+var
+  i: Integer;
 begin
   PutSetting('gui.dark', IntToStr(Ord(Dark)));
   PutSetting('gui.fontsize', IntToStr(FontBase));
+  SaveTabState;
+  PutSetting('gui.tabs', IntToStr(Tabs.Count));
+  PutSetting('gui.tab.active', IntToStr(ActiveTab + 1));
+  for i := 0 to Tabs.Count - 1 do
+    PutSetting('gui.tab.' + IntToStr(i + 1), TTab(Tabs[i]).ModSpec + '|' + IntToStr(TTab(Tabs[i]).Book) + '|' + IntToStr(TTab(Tabs[i]).Chap));
   if Bib <> nil then
     begin
     PutSetting('gui.module', ModSpec);
