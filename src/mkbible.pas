@@ -22,7 +22,7 @@ uses
   MKBibMod, MKBibAbs, MKBibAny, mkbiblecfg, mkbiblescan;
 
 const
-  VERSION = '0.4.0';
+  VERSION = '0.4.1';
   cmNone        = 0;
   cmOpenModule  = 1;
   cmPaths       = 2;
