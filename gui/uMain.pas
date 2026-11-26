@@ -53,6 +53,11 @@ type
     PendV: Integer;             { verse to scroll to the first time the tab is shown }
   end;
 
+  TClosedTab = record
+    Spec: String;
+    Book, Chap, ScrollY, Index: Integer;
+  end;
+
   TOpenMod = record
     Spec: String;
     Bib: AbsBibPtr;
@@ -107,6 +112,9 @@ type
     PlusRect: TRect;
     TabHover, CloseHover: Integer;
     Reg: array of TOpenMod;
+    Closed: array of TClosedTab;     { closed tabs, the last one closed at the end }
+    DragFrom, DragX: Integer;
+    TabDragging: Boolean;
     ModMode: Integer;         { 0: the module list replaces the module of this tab, 1: opens the location in a new tab }
     PendB, PendC, PendV: Integer;
     PaneMenu: TPopupMenu;
@@ -190,11 +198,14 @@ type
     procedure ActivateTab(I: Integer);
     function NewTab(const Spec: String; B, C, V, AScroll: Integer; SwitchTo: Boolean): Boolean;
     procedure CloseTab(I: Integer);
+    procedure MoveTab(From, ToIdx: Integer);
+    procedure ReopenTab;
     function TabTitle(I: Integer): String;
     procedure TabBarRedraw(Sender: TObject; Bitmap: TBGRABitmap);
     procedure TabBarMouseMove(Sender: TObject; Shift: TShiftState; X, Y: Integer);
     procedure TabBarMouseLeave(Sender: TObject);
     procedure TabBarMouseUp(Sender: TObject; Button: TMouseButton; Shift: TShiftState; X, Y: Integer);
+    procedure TabBarMouseDown(Sender: TObject; Button: TMouseButton; Shift: TShiftState; X, Y: Integer);
     procedure ShowHits;
     procedure ShowModList;
     procedure ShowPaneMenu(X, Y: Integer);
@@ -223,7 +234,7 @@ var
 
 const
   SearchHint = 'Search the Bible…';
-  cmNewTab = 20; cmCloseTab = 21;
+  cmNewTab = 20; cmCloseTab = 21; cmReopenTab = 22;
 
 { ------------------------------------------------------------------ construction }
 
@@ -257,7 +268,7 @@ begin
   FontSize := S_(FontBase);
   Dark := GetSetting('gui.dark', '0') = '1';
   Bib := nil;
-  Tabs := TList.Create; ActiveTab := -1; TabHover := -1; CloseHover := -1; ModMode := 0;
+  Tabs := TList.Create; ActiveTab := -1; DragFrom := -1; TabDragging := False; TabHover := -1; CloseHover := -1; ModMode := 0;
   DictG := nil; DictH := nil; HoverRun := -1;
   CopyNums := GetSetting('gui.copy.numbers', '1') = '1';
   ShowXrefs := GetSetting('gui.xrefs', '1') = '1';
@@ -423,6 +434,7 @@ begin
   TabBar.OnMouseMove := @TabBarMouseMove;
   TabBar.OnMouseLeave := @TabBarMouseLeave;
   TabBar.OnMouseUp := @TabBarMouseUp;
+  TabBar.OnMouseDown := @TabBarMouseDown;
   Pane := TBGRAVirtualScreen.Create(Self);
   Pane.Parent := Self;
   Pane.Align := alClient;
@@ -702,6 +714,20 @@ begin
   SaveTabState;
   T := TTab(Tabs[I]);
   WasActive := I = ActiveTab;
+  if T.ModSpec <> '' then
+    begin
+    SetLength(Closed, Length(Closed) + 1);
+    Closed[High(Closed)].Spec := T.ModSpec;
+    Closed[High(Closed)].Book := T.Book;
+    Closed[High(Closed)].Chap := T.Chap;
+    Closed[High(Closed)].ScrollY := T.ScrollY;
+    Closed[High(Closed)].Index := I;
+    if Length(Closed) > 12 then
+      begin
+      Move(Closed[1], Closed[0], 12 * SizeOf(TClosedTab));
+      SetLength(Closed, 12);
+      end;
+    end;
   if WasActive then Bib := nil;
   if T.Bib <> nil then ReleaseBib(T.Bib);
   T.Free;
@@ -712,6 +738,30 @@ begin
     LoadTabState;
     end
   else if I < ActiveTab then Dec(ActiveTab);
+  Redraw;
+end;
+
+{ moves a tab to another place in the row; the same tab stays active }
+procedure TMainForm.MoveTab(From, ToIdx: Integer);
+begin
+  if (From < 0) or (From >= Tabs.Count) or (ToIdx < 0) or (ToIdx >= Tabs.Count) or (From = ToIdx) then Exit;
+  Tabs.Move(From, ToIdx);
+  if ActiveTab = From then ActiveTab := ToIdx
+  else if (From < ActiveTab) and (ToIdx >= ActiveTab) then Dec(ActiveTab)
+  else if (From > ActiveTab) and (ToIdx <= ActiveTab) then Inc(ActiveTab);
+  TabBar.DiscardBitmap;
+end;
+
+{ brings back the tab closed last, at the place it had }
+procedure TMainForm.ReopenTab;
+var
+  C: TClosedTab;
+begin
+  if Length(Closed) = 0 then Exit;
+  C := Closed[High(Closed)];
+  SetLength(Closed, Length(Closed) - 1);
+  if not NewTab(C.Spec, C.Book, C.Chap, 0, C.ScrollY, True) then Exit;
+  MoveTab(ActiveTab, Min(C.Index, Tabs.Count - 1));
   Redraw;
 end;
 
@@ -753,7 +803,8 @@ begin
     TabClose[i] := Rect(TabRects[i].Right - CW - S_(6), TabRects[i].Top + (TabRects[i].Bottom - TabRects[i].Top - CW) div 2,
                         TabRects[i].Right - S_(6), TabRects[i].Top + (TabRects[i].Bottom - TabRects[i].Top - CW) div 2 + CW);
     if Act then Bitmap.FillRoundRectAntialias(TabRects[i].Left, TabRects[i].Top, TabRects[i].Right, TabRects[i].Bottom, S_(8), S_(8), Pix(Theme.AccentSoft))
-    else if Hov then Bitmap.FillRoundRectAntialias(TabRects[i].Left, TabRects[i].Top, TabRects[i].Right, TabRects[i].Bottom, S_(8), S_(8), Pix(Theme.Hover));
+    else if Hov then Bitmap.FillRoundRectAntialias(TabRects[i].Left, TabRects[i].Top, TabRects[i].Right, TabRects[i].Bottom, S_(8), S_(8), Pix(Theme.Hover))
+    else Bitmap.FillRoundRectAntialias(TabRects[i].Left, TabRects[i].Top, TabRects[i].Right, TabRects[i].Bottom, S_(8), S_(8), Pix(Theme.Panel));
     Ttl := TabTitle(i);
     Avail := TabRects[i].Right - TabRects[i].Left - S_(24) - IfThen((N > 1) and (Act or Hov), CW + S_(2), 0);
     while (UTF8Length(Ttl) > 2) and (Bitmap.TextSize(Ttl).cx > Avail) do
@@ -781,8 +832,21 @@ end;
 
 procedure TMainForm.TabBarMouseMove(Sender: TObject; Shift: TShiftState; X, Y: Integer);
 var
-  i, H, C: Integer;
+  i, H, C, J: Integer;
 begin
+  if (DragFrom >= 0) and (ssLeft in Shift) then
+    begin
+    if (not TabDragging) and (Abs(X - DragX) > S_(6)) then TabDragging := True;
+    if TabDragging then
+      begin
+      J := DragFrom;
+      for i := 0 to High(TabRects) do
+        if (X >= TabRects[i].Left) and (X < TabRects[i].Right + S_(4)) then J := i;
+      if X < TabRects[0].Left then J := 0;
+      if J <> DragFrom then begin MoveTab(DragFrom, J); DragFrom := J; end;
+      Exit;
+      end;
+    end;
   H := -1; C := -1;
   for i := 0 to High(TabRects) do
     if PtInRect(TabRects[i], Point(X, Y)) then
@@ -799,11 +863,34 @@ begin
   if (TabHover <> -1) or (CloseHover <> -1) then begin TabHover := -1; CloseHover := -1; TabBar.DiscardBitmap; end;
 end;
 
-procedure TMainForm.TabBarMouseUp(Sender: TObject; Button: TMouseButton; Shift: TShiftState; X, Y: Integer);
+{ a press on a tab selects it and may start dragging it; the close button waits for the release }
+procedure TMainForm.TabBarMouseDown(Sender: TObject; Button: TMouseButton; Shift: TShiftState; X, Y: Integer);
 var
   i: Integer;
 begin
   CloseDrop;
+  TabDragging := False;
+  DragFrom := -1;
+  if Button <> mbLeft then Exit;
+  for i := 0 to High(TabRects) do
+    if PtInRect(TabRects[i], Point(X, Y)) then
+      begin
+      if (Tabs.Count > 1) and PtInRect(TabClose[i], Point(X, Y)) and ((i = ActiveTab) or (i = TabHover)) then Exit;
+      DragFrom := i; DragX := X;
+      if i <> ActiveTab then ActivateTab(i);
+      Exit;
+      end;
+end;
+
+procedure TMainForm.TabBarMouseUp(Sender: TObject; Button: TMouseButton; Shift: TShiftState; X, Y: Integer);
+var
+  i: Integer;
+  WasDrag: Boolean;
+begin
+  WasDrag := TabDragging;
+  TabDragging := False;
+  DragFrom := -1;
+  if WasDrag then begin TabBar.DiscardBitmap; Exit; end;
   if PtInRect(PlusRect, Point(X, Y)) then
     begin
     if Button = mbLeft then DoCommand(cmNewTab);
@@ -813,8 +900,7 @@ begin
     if PtInRect(TabRects[i], Point(X, Y)) then
       begin
       if (Button = mbMiddle) or ((Button = mbLeft) and (Tabs.Count > 1) and PtInRect(TabClose[i], Point(X, Y)) and ((i = ActiveTab) or (i = TabHover))) then
-        begin CloseTab(i); TabHover := -1; CloseHover := -1; end
-      else if Button = mbLeft then ActivateTab(i);
+        begin CloseTab(i); TabHover := -1; CloseHover := -1; end;
       Exit;
       end;
 end;
@@ -1458,7 +1544,7 @@ begin
   { tab keys work wherever the focus is }
   if ssCtrl in Shift then
     case Key of
-      VK_T: begin DoCommand(cmNewTab); Key := 0; Exit; end;
+      VK_T: begin if ssShift in Shift then DoCommand(cmReopenTab) else DoCommand(cmNewTab); Key := 0; Exit; end;
       VK_W: begin DoCommand(cmCloseTab); Key := 0; Exit; end;
       VK_TAB, VK_NEXT, VK_PRIOR:
         if (Key = VK_TAB) or (Tabs.Count > 1) then
@@ -1962,6 +2048,7 @@ begin
        Add('Open module…', 'Ctrl+O', cmOpen);
        Add('New tab', 'Ctrl+T', cmNewTab);
        if Tabs.Count > 1 then Add('Close tab', 'Ctrl+W', cmCloseTab);
+       if Length(Closed) > 0 then Add('Reopen closed tab', 'Ctrl+Shift+T', cmReopenTab);
        Add('', '', 0);
        Add('Copy (selection, else the chapter)', 'Ctrl+C', cmCopySel);
        Add('Copy the whole chapter', '', cmCopyChap);
@@ -2090,6 +2177,7 @@ begin
     cmOpen: ModClick(nil);
     cmNewTab: NewTab(ModSpec, CurBook, CurChap, 0, ScrollY, True);
     cmCloseTab: CloseTab(ActiveTab);
+    cmReopenTab: ReopenTab;
     cmPaths: DoPaths;
     cmDownload: DoDownload;
     cmPin: if ModSpec <> '' then ToggleFavorite(ModSpec);
@@ -2135,7 +2223,8 @@ begin
       'Ctrl+A: select the chapter text' + LineEnding +
       'Ctrl++ / Ctrl+−: text size' + LineEnding +
       'Ctrl+Shift+D: light / dark theme' + LineEnding +
-      'Ctrl+T: new tab (a copy of this one), Ctrl+W: close it' + LineEnding +
+      'Ctrl+T: new tab (a copy of this one), Ctrl+W: close it, Ctrl+Shift+T: reopen the last closed tab' + LineEnding +
+      'Drag a tab to move it' + LineEnding +
       'Ctrl+Tab / Ctrl+Shift+Tab (or Ctrl+Page Down / Up): next / previous tab, Ctrl+1 .. 9: a tab' + LineEnding +
       'Right click the text: open the verse in a new tab or in another version' + LineEnding +
       'Ctrl+Q: quit' + LineEnding + LineEnding +
