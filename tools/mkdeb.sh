@@ -41,7 +41,7 @@ gzip -9n "$STAGE/usr/share/doc/mkbible/changelog"
 DEPS="libc6"
 DESC="Bible module tools and a text mode Bible reader"
 if [ -x "$STAGE/usr/bin/mkbiblegui" ]; then
-  DEPS="$DEPS, libgtk2.0-0t64 | libgtk2.0-0"
+  DEPS="$DEPS, libgtk2.0-0t64 | libgtk2.0-0, libssl3t64 | libssl3 | libssl1.1"
   DESC="$DESC, with a GUI reader"
 fi
 SIZE=$(du -sk "$STAGE" | cut -f1)

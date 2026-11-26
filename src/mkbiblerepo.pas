@@ -44,11 +44,63 @@ function ListRepo(const R: TRepo; out Items: TRepoItems; out Err: String): Boole
 function InstallItem(const R: TRepo; const It: TRepoItem; out Dest, Err: String): Boolean;
   { Dest is the folder the module landed in (the Sword root, or the translation's folder) }
 function IsInstalled(const R: TRepo; const It: TRepoItem): Boolean;
+function LangDisplay(const L: String): String;
+  { 'en' or 'en-GB' -> 'English'; names the repository already spelled out are kept; unknown codes are upper cased }
+function SystemLangName: String;
+  { the language of the LANG / LC_ALL environment, as LangDisplay would name it ('' if unknown) }
 
 implementation
 
 uses
   SysUtils, Classes, fphttpclient, opensslsockets, zstream, zipper, mkbiblecfg;
+
+{ ------------------------------------------------------------------ language names }
+
+const
+  LangTable =
+    'en=English;de=German;fr=French;es=Spanish;pt=Portuguese;it=Italian;nl=Dutch;ru=Russian;uk=Ukrainian;pl=Polish;' +
+    'cs=Czech;sk=Slovak;sl=Slovenian;hr=Croatian;sr=Serbian;bg=Bulgarian;ro=Romanian;hu=Hungarian;fi=Finnish;' +
+    'sv=Swedish;da=Danish;no=Norwegian;nb=Norwegian;nn=Norwegian;is=Icelandic;et=Estonian;lv=Latvian;lt=Lithuanian;' +
+    'el=Greek (modern);grc=Greek (ancient);he=Hebrew;hbo=Hebrew (ancient);heb=Hebrew;ar=Arabic;fa=Persian;tr=Turkish;' +
+    'hy=Armenian;ka=Georgian;la=Latin;lat=Latin;cop=Coptic;syr=Syriac;arc=Aramaic;got=Gothic;ang=Old English;' +
+    'zh=Chinese;ja=Japanese;ko=Korean;vi=Vietnamese;th=Thai;id=Indonesian;ms=Malay;tl=Tagalog;hi=Hindi;bn=Bengali;' +
+    'ta=Tamil;te=Telugu;ml=Malayalam;kn=Kannada;mr=Marathi;gu=Gujarati;pa=Punjabi;ur=Urdu;ne=Nepali;si=Sinhala;' +
+    'my=Burmese;km=Khmer;lo=Lao;mn=Mongolian;sw=Swahili;am=Amharic;ha=Hausa;yo=Yoruba;ig=Igbo;zu=Zulu;xh=Xhosa;' +
+    'af=Afrikaans;st=Sesotho;tn=Tswana;sn=Shona;mg=Malagasy;so=Somali;ga=Irish;gd=Scottish Gaelic;cy=Welsh;' +
+    'br=Breton;eu=Basque;ca=Catalan;gl=Galician;mt=Maltese;sq=Albanian;mk=Macedonian;be=Belarusian;eo=Esperanto;' +
+    'haw=Hawaiian;mi=Maori;sm=Samoan;to=Tongan;fj=Fijian;qu=Quechua;gn=Guarani;ay=Aymara;nah=Nahuatl;' +
+    'ko=Korean;kk=Kazakh;uz=Uzbek;az=Azerbaijani;ky=Kyrgyz;tg=Tajik;tk=Turkmen;ps=Pashto;ku=Kurdish;sd=Sindhi';
+
+function LangDisplay(const L: String): String;
+var
+  C: String;
+  P: Integer;
+begin
+  C := LowerCase(Trim(L));
+  if C = '' then begin Result := 'Other'; Exit; end;
+  P := Pos('-', C); if P > 0 then C := Copy(C, 1, P - 1);
+  P := Pos('_', C); if P > 0 then C := Copy(C, 1, P - 1);
+  P := Pos(';' + C + '=', ';' + LangTable);
+  if (Length(C) <= 3) then
+    begin
+    if P > 0 then
+      begin
+      Result := Copy(LangTable, P + Length(C) + 1, MaxInt);
+      Result := Copy(Result, 1, Pos(';', Result + ';') - 1);
+      end
+    else Result := UpperCase(C);
+    end
+  else Result := Trim(L);   { already a name (eBible's list) }
+end;
+
+function SystemLangName: String;
+var
+  S: String;
+begin
+  S := GetEnvironmentVariable('LC_ALL');
+  if S = '' then S := GetEnvironmentVariable('LANG');
+  if (S = '') or (S = 'C') or (S = 'POSIX') then Result := '' else Result := LangDisplay(S);
+end;
 
 { ------------------------------------------------------------------ repository list }
 
@@ -400,8 +452,10 @@ begin
 end;
 
 function ListRepo(const R: TRepo; out Items: TRepoItems; out Err: String): Boolean;
+var i: Integer;
 begin
   if R.Kind = rkSword then Result := ListSword(R, Items, Err) else Result := ListEBible(R, Items, Err);
+  for i := 0 to High(Items) do Items[i].Lang := LangDisplay(Items[i].Lang);
 end;
 
 { ------------------------------------------------------------------ install }

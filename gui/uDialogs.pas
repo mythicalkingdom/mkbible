@@ -33,16 +33,19 @@ type
     GreekLbl, HebrewLbl: TLabel;
     Greek, Hebrew: String;
     WasActive: Boolean;
-    RepoBox: TComboBox;
+    RepoBox, LangBox: TComboBox;
+    LangNames: TStringList;
     StatusLbl: TLabel;
     InstBtn: TBCButton;
     Repos: TRepoArray;
     Items: TRepoItems;
     Shown: array of Integer;
     RepoIdx: Integer;
+    LangDone: Boolean;
     Busy, Installed: Boolean;
     procedure DlDraw(Control: TWinControl; Index: Integer; ARect: TRect; State: TOwnerDrawState);
     procedure DlLoad(Sender: TObject);
+    procedure DlFillLangs;
     procedure DlShow(Sender: TObject);
     procedure DlFilter(Sender: TObject);
     procedure DlInstall(Sender: TObject);
@@ -497,6 +500,7 @@ procedure TDlg.DlSetBusy(B: Boolean);
 begin
   Busy := B;
   RepoBox.Enabled := not B;
+  LangBox.Enabled := not B;
   Filter.Enabled := not B;
   List.Enabled := not B;
   InstBtn.Enabled := not B;
@@ -517,6 +521,44 @@ begin
   DlLoad(nil);
 end;
 
+{ the language drop-down: every language the list has, with a count; keeps the current pick, else the system language }
+procedure TDlg.DlFillLangs;
+var
+  i, K, Pick: Integer;
+  Cnt: TStringList;
+  Want: String;
+begin
+  if LangBox.ItemIndex > 0 then Want := LangNames[LangBox.ItemIndex]
+  else if not LangDone then Want := SystemLangName
+  else Want := '';
+  Cnt := TStringList.Create;
+  try
+    Cnt.Sorted := True;
+    Cnt.CaseSensitive := False;
+    for i := 0 to High(Items) do
+      begin
+      K := Cnt.IndexOf(Items[i].Lang);
+      if K < 0 then Cnt.AddObject(Items[i].Lang, TObject(PtrInt(1)))
+      else Cnt.Objects[K] := TObject(PtrInt(Cnt.Objects[K]) + 1);
+      end;
+    LangNames.Clear;
+    LangBox.Items.Clear;
+    LangNames.Add('');
+    LangBox.Items.Add('All languages (' + IntToStr(Length(Items)) + ')');
+    Pick := 0;
+    for i := 0 to Cnt.Count - 1 do
+      begin
+      LangNames.Add(Cnt[i]);
+      LangBox.Items.Add(Cnt[i] + ' (' + IntToStr(PtrInt(Cnt.Objects[i])) + ')');
+      if SameText(Cnt[i], Want) then Pick := LangBox.Items.Count - 1;
+      end;
+    LangBox.ItemIndex := Pick;
+    LangDone := True;
+  finally
+    Cnt.Free;
+  end;
+end;
+
 procedure TDlg.DlFilter(Sender: TObject);
 var
   i: Integer;
@@ -530,7 +572,8 @@ begin
     for i := 0 to High(Items) do
       begin
       Hay := LowerCase(Items[i].Id + ' ' + Items[i].Title + ' ' + Items[i].Lang + ' ' + Items[i].Kind);
-      if (F = '') or (Pos(F, Hay) > 0) then
+      if ((F = '') or (Pos(F, Hay) > 0)) and
+         ((LangBox.ItemIndex <= 0) or (Items[i].Lang = LangNames[LangBox.ItemIndex])) then
         begin
         SetLength(Shown, Length(Shown) + 1);
         Shown[High(Shown)] := i;
@@ -559,6 +602,7 @@ begin
   finally
     DlSetBusy(False);
   end;
+  DlFillLangs;
   DlFilter(nil);
 end;
 
@@ -639,24 +683,33 @@ var
 begin
   D := NewDlg(Owner, Th, 'Download modules', 700, 560);
   try
-    D.RepoIdx := 0;
+    D.RepoIdx := -1;
+    D.LangNames := TStringList.Create;
     GetRepos(D.Repos);
     MakeLabel(D, 'Download modules', 20, 16, 13, True, Th.Text);
     MakeLabel(D, 'Sword modules install into ' + SwordInstallDir, 20, 38, 10, False, Th.Muted);
     MakeLabel(D, 'Other kinds (USFM) install into ' + LocalModuleDir, 20, 54, 10, False, Th.Muted);
     D.RepoBox := TComboBox.Create(D);
     D.RepoBox.Parent := D;
-    D.RepoBox.SetBounds(S_(20), S_(78), S_(300), S_(30));
+    D.RepoBox.SetBounds(S_(20), S_(78), S_(208), S_(30));
     D.RepoBox.Style := csDropDownList;
     for i := 0 to High(D.Repos) do D.RepoBox.Items.Add(D.Repos[i].Name);
     D.RepoBox.ItemIndex := 0;
     D.RepoBox.OnChange := @D.DlLoad;
+    D.LangBox := TComboBox.Create(D);
+    D.LangBox.Parent := D;
+    D.LangBox.SetBounds(S_(240), S_(78), S_(210), S_(30));
+    D.LangBox.Style := csDropDownList;
+    D.LangBox.OnChange := @D.DlFilter;
+    D.LangBox.Items.Add('All languages');
+    D.LangBox.ItemIndex := 0;
+    D.LangNames.Add('');
     D.Filter := TEdit.Create(D);
     D.Filter.Parent := D;
-    D.Filter.SetBounds(S_(336), S_(78), S_(344), S_(30));
+    D.Filter.SetBounds(S_(462), S_(78), S_(218), S_(30));
     D.Filter.Color := Th.Panel;
     D.Filter.Font.Color := Th.Text;
-    D.Filter.TextHint := 'Filter by name, language or type';
+    D.Filter.TextHint := 'Search the list';
     D.Filter.OnChange := @D.DlFilter;
     D.List := TListBox.Create(D);
     D.List.Parent := D;
@@ -673,6 +726,7 @@ begin
     D.ShowModal;
     Result := D.Installed;
   finally
+    D.LangNames.Free;
     D.Free;
   end;
 end;
