@@ -79,7 +79,14 @@ folders (`~/.config/mkbible/mkbible.cfg`, `%APPDATA%\mkbible` on Windows).
   are underlined under the mouse, and a click opens a pop-up with the Greek or Hebrew dictionary entry. The Sword
   StrongsGreek / StrongsHebrew modules are found on the module folders, or pick others under Settings.
 * **Notes:** footnotes (*) and cross references (†) are marked in the text; a click opens a pop-up with the note or the
-  referenced verses.
+  referenced verses. View, Hide cross references (Ctrl+R) removes the † marks, and the choice is remembered.
+* **Download modules:** Settings, Download modules... lists what is available from the built in repositories
+  (CrossWire main, beta, attic and Wycliffe, eBible.org as Sword modules, and eBible.org's USFM Bibles), with a filter
+  box, and installs the chosen one. Sword modules go into `~/.sword` (`%APPDATA%\Sword` on Windows) and USFM Bibles
+  into `~/.local/share/mkbible/modules`; either folder is added to the module folders when needed. Locked modules
+  (those that need a purchased key) are not listed. More repositories can be added to `mkbible.cfg` as
+  `repo.1 = Name | sword | https://host/path` (or `ebible` for an eBible.org style Scriptures folder). Downloads use
+  HTTPS, so OpenSSL (`libssl`) has to be installed.
 * **Search** with highlighted hits (click one to go there), **text size** (A−, A+), a **reading font** chooser, **module
   folders** editing, HiDPI scaling, and a menu bar (File, View, Settings, Help).
 

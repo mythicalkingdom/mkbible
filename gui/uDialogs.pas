@@ -12,8 +12,12 @@ function FontDialog(Owner: TForm; const Th: TTheme; var FontName: String; var Fo
 procedure InfoDialog(Owner: TForm; const Th: TTheme; const Title, Text: String);
 function StrongsDialog(Owner: TForm; const Th: TTheme; var Greek, Hebrew: String; const GreekNow, HebrewNow: String): Boolean;
 procedure StrongsPopup(Owner: TForm; const Th: TTheme; const Title, Body: String; Pt: TPoint);
+function DownloadDialog(Owner: TForm; const Th: TTheme): Boolean;
+  { the module download list; True if something was installed }
 
 implementation
+
+uses mkbiblerepo, mkbiblecfg;
 
 type
   TDlg = class(TForm)
@@ -29,6 +33,22 @@ type
     GreekLbl, HebrewLbl: TLabel;
     Greek, Hebrew: String;
     WasActive: Boolean;
+    RepoBox: TComboBox;
+    StatusLbl: TLabel;
+    InstBtn: TBCButton;
+    Repos: TRepoArray;
+    Items: TRepoItems;
+    Shown: array of Integer;
+    RepoIdx: Integer;
+    Busy, Installed: Boolean;
+    procedure DlDraw(Control: TWinControl; Index: Integer; ARect: TRect; State: TOwnerDrawState);
+    procedure DlLoad(Sender: TObject);
+    procedure DlShow(Sender: TObject);
+    procedure DlFilter(Sender: TObject);
+    procedure DlInstall(Sender: TObject);
+    procedure DlProgress(Done, Total: Int64);
+    procedure DlSetBusy(B: Boolean);
+    procedure DlAddPath(const P: String);
     procedure PopupActivate(Sender: TObject);
     procedure ListDraw(Control: TWinControl; Index: Integer; ARect: TRect; State: TOwnerDrawState);
     procedure FilterChange(Sender: TObject);
@@ -469,6 +489,192 @@ begin
   StyleBtn(B, Th, False);
   B.OnClick := @F.CloseClick;
   F.Show;
+end;
+
+{ ---------------------------------------------------------------- module downloads }
+
+procedure TDlg.DlSetBusy(B: Boolean);
+begin
+  Busy := B;
+  RepoBox.Enabled := not B;
+  Filter.Enabled := not B;
+  List.Enabled := not B;
+  InstBtn.Enabled := not B;
+  if B then Screen.Cursor := crHourGlass else Screen.Cursor := crDefault;
+  Application.ProcessMessages;
+end;
+
+procedure TDlg.DlProgress(Done, Total: Int64);
+begin
+  if Total > 0 then StatusLbl.Caption := 'Downloading… ' + IntToStr(Done * 100 div Total) + '%'
+  else StatusLbl.Caption := 'Downloading… ' + IntToStr(Done div 1024) + ' KB';
+  Application.ProcessMessages;
+end;
+
+procedure TDlg.DlShow(Sender: TObject);
+begin
+  OnShow := nil;
+  DlLoad(nil);
+end;
+
+procedure TDlg.DlFilter(Sender: TObject);
+var
+  i: Integer;
+  F, Hay: String;
+begin
+  F := LowerCase(Trim(Filter.Text));
+  SetLength(Shown, 0);
+  List.Items.BeginUpdate;
+  try
+    List.Items.Clear;
+    for i := 0 to High(Items) do
+      begin
+      Hay := LowerCase(Items[i].Id + ' ' + Items[i].Title + ' ' + Items[i].Lang + ' ' + Items[i].Kind);
+      if (F = '') or (Pos(F, Hay) > 0) then
+        begin
+        SetLength(Shown, Length(Shown) + 1);
+        Shown[High(Shown)] := i;
+        List.Items.Add(Items[i].Id);
+        end;
+      end;
+  finally
+    List.Items.EndUpdate;
+  end;
+end;
+
+procedure TDlg.DlLoad(Sender: TObject);
+var
+  Err: String;
+begin
+  if Busy or (RepoBox.ItemIndex < 0) then Exit;
+  DlSetBusy(True);
+  try
+    StatusLbl.Caption := 'Loading the list from ' + Repos[RepoBox.ItemIndex].Url + ' …';
+    SetLength(Items, 0);
+    if ListRepo(Repos[RepoBox.ItemIndex], Items, Err) then
+      StatusLbl.Caption := IntToStr(Length(Items)) + ' modules available. Select one and press Install.'
+    else
+      StatusLbl.Caption := 'Could not load the list: ' + Err;
+    RepoIdx := RepoBox.ItemIndex;
+  finally
+    DlSetBusy(False);
+  end;
+  DlFilter(nil);
+end;
+
+procedure TDlg.DlDraw(Control: TWinControl; Index: Integer; ARect: TRect; State: TOwnerDrawState);
+var
+  C: TCanvas;
+  It: TRepoItem;
+  L2: String;
+begin
+  C := List.Canvas;
+  if odSelected in State then C.Brush.Color := Th.AccentSoft else C.Brush.Color := Th.Panel;
+  C.FillRect(ARect);
+  if (Index < 0) or (Index > High(Shown)) then Exit;
+  It := Items[Shown[Index]];
+  C.Font.Name := Th.SansName;
+  C.Font.Size := 11;
+  C.Font.Style := [fsBold];
+  C.Font.Color := Th.Text;
+  C.TextOut(ARect.Left + S_(10), ARect.Top + S_(4), It.Title);
+  L2 := It.Id;
+  if It.Lang <> '' then L2 := L2 + '  ·  ' + It.Lang;
+  L2 := L2 + '  ·  ' + It.Kind;
+  if It.SizeKB > 0 then L2 := L2 + '  ·  ' + IntToStr(It.SizeKB) + ' KB';
+  if IsInstalled(Repos[RepoIdx], It) then L2 := L2 + '  ·  installed';
+  C.Font.Style := [];
+  C.Font.Size := 9;
+  C.Font.Color := Th.Muted;
+  C.TextOut(ARect.Left + S_(10), ARect.Top + S_(24), L2);
+end;
+
+procedure TDlg.DlAddPath(const P: String);
+var
+  A: TStringArray;
+  i: Integer;
+begin
+  A := LoadPaths;
+  for i := 0 to High(A) do
+    if SameText(ExcludeTrailingPathDelimiter(A[i]), ExcludeTrailingPathDelimiter(P)) then Exit;
+  SetLength(A, Length(A) + 1);
+  A[High(A)] := P;
+  SavePaths(A);
+end;
+
+procedure TDlg.DlInstall(Sender: TObject);
+var
+  It: TRepoItem;
+  Dest, Err: String;
+  R: TRepo;
+begin
+  if Busy or (List.ItemIndex < 0) or (List.ItemIndex > High(Shown)) then Exit;
+  It := Items[Shown[List.ItemIndex]];
+  R := Repos[RepoIdx];
+  if IsInstalled(R, It) then
+    begin
+    StatusLbl.Caption := It.Id + ' is already installed (installing again replaces it).';
+    end;
+  DlSetBusy(True);
+  try
+    OnProgress := @DlProgress;
+    if InstallItem(R, It, Dest, Err) then
+      begin
+      if R.Kind = rkSword then DlAddPath(Dest) else DlAddPath(ExtractFilePath(ExcludeTrailingPathDelimiter(Dest)));
+      Installed := True;
+      StatusLbl.Caption := 'Installed ' + It.Id + ' into ' + Dest;
+      end
+    else StatusLbl.Caption := 'Install failed: ' + Err;
+  finally
+    OnProgress := nil;
+    DlSetBusy(False);
+  end;
+  List.Invalidate;
+end;
+
+function DownloadDialog(Owner: TForm; const Th: TTheme): Boolean;
+var
+  D: TDlg;
+  i: Integer;
+begin
+  D := NewDlg(Owner, Th, 'Download modules', 700, 560);
+  try
+    D.RepoIdx := 0;
+    GetRepos(D.Repos);
+    MakeLabel(D, 'Download modules', 20, 16, 13, True, Th.Text);
+    MakeLabel(D, 'Sword modules install into ' + SwordInstallDir, 20, 38, 10, False, Th.Muted);
+    MakeLabel(D, 'Other kinds (USFM) install into ' + LocalModuleDir, 20, 54, 10, False, Th.Muted);
+    D.RepoBox := TComboBox.Create(D);
+    D.RepoBox.Parent := D;
+    D.RepoBox.SetBounds(S_(20), S_(78), S_(300), S_(30));
+    D.RepoBox.Style := csDropDownList;
+    for i := 0 to High(D.Repos) do D.RepoBox.Items.Add(D.Repos[i].Name);
+    D.RepoBox.ItemIndex := 0;
+    D.RepoBox.OnChange := @D.DlLoad;
+    D.Filter := TEdit.Create(D);
+    D.Filter.Parent := D;
+    D.Filter.SetBounds(S_(336), S_(78), S_(344), S_(30));
+    D.Filter.Color := Th.Panel;
+    D.Filter.Font.Color := Th.Text;
+    D.Filter.TextHint := 'Filter by name, language or type';
+    D.Filter.OnChange := @D.DlFilter;
+    D.List := TListBox.Create(D);
+    D.List.Parent := D;
+    D.List.SetBounds(S_(20), S_(112), S_(660), S_(350));
+    D.List.Style := lbOwnerDrawFixed;
+    D.List.ItemHeight := S_(46);
+    D.List.Color := Th.Panel;
+    D.List.BorderStyle := bsNone;
+    D.List.OnDrawItem := @D.DlDraw;
+    D.StatusLbl := MakeLabel(D, '', 20, 476, 10, False, Th.Muted);
+    D.InstBtn := MakeBtn(D, 'Install', 456, 508, 104, True, @D.DlInstall, 0);
+    MakeBtn(D, 'Close', 576, 508, 104, False, nil, mrCancel);
+    D.OnShow := @D.DlShow;
+    D.ShowModal;
+    Result := D.Installed;
+  finally
+    D.Free;
+  end;
 end;
 
 end.

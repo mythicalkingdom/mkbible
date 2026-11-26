@@ -46,6 +46,21 @@ var
     Cand[High(Cand)] := S;
   end;
 
+  { a sub folder that is itself a USFM / USX Bible (the downloader unpacks each translation into its own folder) }
+  function SubIsScripture(const Sub: String): Boolean;
+  var SR2: TSearchRec; E2: String;
+  begin
+    Result := False;
+    if FindFirst(IncludeTrailingPathDelimiter(Sub) + '*', faAnyFile, SR2) = 0 then
+      begin
+      repeat
+        E2 := LowerCase(ExtractFileExt(SR2.Name));
+        if ((SR2.Attr and faDirectory) = 0) and ((E2 = '.usfm') or (E2 = '.sfm') or (E2 = '.usx')) then Result := True;
+      until Result or (FindNext(SR2) <> 0);
+      FindClose(SR2);
+      end;
+  end;
+
 begin
   D := IncludeTrailingPathDelimiter(Dir);
   SetLength(Cand, 0);
@@ -76,7 +91,11 @@ begin
     else if FindFirst(D + '*', faAnyFile, SR) = 0 then
       begin
       repeat
-        if (SR.Attr and faDirectory) = 0 then
+        if ((SR.Attr and faDirectory) <> 0) and (SR.Name <> '.') and (SR.Name <> '..') then
+          begin
+          if SubIsScripture(D + SR.Name) then AddCand(D + SR.Name);
+          end
+        else if (SR.Attr and faDirectory) = 0 then
           begin
           Ext := LowerCase(ExtractFileExt(SR.Name));
           { a .zip is only tried when it looks like a USFM or USX Bible (any other zip would be unpacked for nothing) }

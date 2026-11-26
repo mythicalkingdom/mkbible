@@ -55,6 +55,7 @@ type
     DictGSpec, DictHSpec: String;
     HoverRun: Integer;
     CopyNums: Boolean;        { include verse numbers when copying }
+    ShowXrefs: Boolean;       { show the cross reference marks in the text }
     MenuTitles: array of String;
     MenuRects: array of TRect;
     MenuOpen, MenuHover, DropHover: Integer;
@@ -112,6 +113,7 @@ type
     function SelText: String;
     procedure ClearSel;
     procedure CopySelection;
+    procedure DoDownload;
     procedure DoPaths;
     procedure DoStrongsDict;
     procedure CopyChapter;
@@ -208,6 +210,7 @@ begin
   Bib := nil;
   DictG := nil; DictH := nil; HoverRun := -1;
   CopyNums := GetSetting('gui.copy.numbers', '1') = '1';
+  ShowXrefs := GetSetting('gui.xrefs', '1') = '1';
   CurBook := 1; CurChap := 1;
   BuildUI;
   ApplyTheme;
@@ -263,6 +266,7 @@ begin
       case ParamStr(B + 1) of
         'font': DoFont;
         'paths': DoPaths;
+        'download': DoDownload;
         'keys': DoCommand(10);
       end;
     if ParamStr(B) = '--strong' then
@@ -654,7 +658,7 @@ begin
         if Closing then
           begin
           if NoteDepth > 0 then Dec(NoteDepth);
-          if (NoteDepth = 0) and (Trim(NoteBuf + NoteRefs) <> '') then
+          if (NoteDepth = 0) and (Trim(NoteBuf + NoteRefs) <> '') and (ShowXrefs or not NoteIsX) then
             begin
             EnsureNum;
             if NoteIsX then Push(tkNote, '†') else Push(tkNote, '*');
@@ -1035,6 +1039,7 @@ begin
     VK_A: if ssCtrl in Shift then begin DoCommand(13); Key := 0; end;
     VK_Q: if ssCtrl in Shift then begin Close; Key := 0; end;
     VK_T: if ssCtrl in Shift then begin ThemeClick(nil); Key := 0; end;
+    VK_R: if ssCtrl in Shift then begin DoCommand(17); Key := 0; end;
     VK_ADD, VK_OEM_PLUS: if ssCtrl in Shift then begin BiggerClick(nil); Key := 0; end;
     VK_SUBTRACT, VK_OEM_MINUS: if ssCtrl in Shift then begin SmallerClick(nil); Key := 0; end;
     VK_G: if ssCtrl in Shift then begin OpenLoc; Key := 0; end;
@@ -1397,7 +1402,7 @@ end;
 
 const
   cmOpen = 1; cmPaths = 2; cmCopySel = 3; cmCopyChap = 4; cmQuit = 5; cmTheme = 6; cmBigger = 7; cmSmaller = 8;
-  cmFont = 9; cmStrongs = 14; cmCopyNums = 15; cmGoto = 16; cmKeys = 10; cmAbout = 11; cmFind = 12; cmSelAll = 13;
+  cmFont = 9; cmStrongs = 14; cmCopyNums = 15; cmGoto = 16; cmKeys = 10; cmAbout = 11; cmFind = 12; cmSelAll = 13; cmXrefs = 17; cmDownload = 18;
 
 procedure TMainForm.BuildMenus;
 begin
@@ -1492,9 +1497,12 @@ begin
        Add('', '', 0);
        Add('Go to book and chapter…', 'Ctrl+G', cmGoto);
        Add('Find in the Bible', 'Ctrl+F', cmFind);
+       Add('', '', 0);
+       if ShowXrefs then Add('Hide cross references', 'Ctrl+R', cmXrefs) else Add('Show cross references', 'Ctrl+R', cmXrefs);
        end;
     2: begin
        Add('Module folders…', '', cmPaths);
+       Add('Download modules…', '', cmDownload);
        Add('Reading font…', '', cmFont);
        Add('Strong''s dictionaries…', '', cmStrongs);
        Add('', '', 0);
@@ -1595,6 +1603,7 @@ begin
   case Cmd of
     cmOpen: ModClick(nil);
     cmPaths: DoPaths;
+    cmDownload: DoDownload;
     cmCopySel: CopyClick(nil);
     cmCopyChap: CopyChapter;
     cmQuit: Close;
@@ -1608,6 +1617,16 @@ begin
       begin
       CopyNums := not CopyNums;
       PutSetting('gui.copy.numbers', IntToStr(Ord(CopyNums)));
+      end;
+    cmXrefs:
+      begin
+      ShowXrefs := not ShowXrefs;
+      PutSetting('gui.xrefs', IntToStr(Ord(ShowXrefs)));
+      if not SearchMode then
+        begin
+        ClearSel; HoverRun := -1;
+        LoadChapterToks; LayoutRuns; ClampScroll; Redraw;
+        end;
       end;
     cmFind: begin SearchEd.SetFocus; SearchEd.SelectAll; end;
     cmSelAll:
@@ -1636,6 +1655,11 @@ begin
       'Drawn with BGRABitmap and BGRAControls on Lazarus.');
   end;
   i := 0;
+end;
+
+procedure TMainForm.DoDownload;
+begin
+  DownloadDialog(Self, Theme);
 end;
 
 procedure TMainForm.DoPaths;
