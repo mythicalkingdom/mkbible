@@ -59,6 +59,13 @@ Type
   MkpOpts = Set Of MkpOpt;
 
 Function MkpTranslate(Const S: AnsiString; From, Dest: MkpFormat; Opts: MkpOpts = []): AnsiString;
+Function MkpToXhtml(Const S: AnsiString; From: MkpFormat; VerseNum: Integer; WithNotes: Boolean;
+  Var NoteCount: Integer; Var NoteHtml: AnsiString): AnsiString;
+  {XHTML for an EPUB: inline text of one verse, to sit inside a <p>.  Paragraph breaks come out as </p><p> and
+  headings as </p><h5 class="sh">..</h5><p> (the caller removes the empty paragraphs), poetry lines as <br/>, words of
+  Jesus as <span class="jesus">, italics and bold as i / b.  VerseNum > 0 puts <sup class="vn">N</sup> before the first
+  text.  Footnotes (cross reference notes are left out) become a marker link in the text and an
+  <aside epub:type="footnote" id="fnK"> appended to NoteHtml; NoteCount numbers them across calls.}
 Function MkpSummary(Const S: AnsiString; From: MkpFormat): AnsiString;
   {Counts of what the text carries after parsing, e.g. "text=57 words=9 strongs=9 notes=1 ..."}
 Function MkpOsisToHuman(Const R: AnsiString): AnsiString;   {Gen.1.1 -> Gen 1:1}
@@ -2175,6 +2182,74 @@ Function WriteHTML(Const D: TDoc): AnsiString;
   End;
 
 
+Function WriteXhtml(Const D: TDoc; VerseNum: Integer; WithNotes: Boolean; Var NoteCount: Integer; Var NoteHtml: AnsiString): AnsiString;
+  Var
+    O, NB: AnsiString;
+    i, InNote, HeadDepth: Integer;
+    NumDone, XrefNote: Boolean;
+
+  Procedure Emit(Const T: AnsiString);
+    Begin
+    If InNote > 0 Then NB := NB + T Else O := O + T;
+    End;
+
+  Begin
+  O := '';
+  NB := '';
+  InNote := 0;
+  HeadDepth := 0;
+  NumDone := VerseNum <= 0;
+  XrefNote := False;
+  For i := 0 To D.N - 1 Do
+    With D.Ev[i] Do
+      Case Kind Of
+        ekNoteOn:
+          Begin
+          If InNote = 0 Then
+            Begin
+            XrefNote := (Num = 1) Or Not WithNotes;
+            NB := '';
+            End;
+          Inc(InNote);
+          End;
+        ekNoteOff:
+          If InNote > 0 Then
+            Begin
+            Dec(InNote);
+            If (InNote = 0) And Not XrefNote And (Trim(NB) <> '') Then
+              Begin
+              Inc(NoteCount);
+              O := O + '<a class="fn" epub:type="noteref" id="r' + IntToStr(NoteCount) + '" href="#fn' + IntToStr(NoteCount) + '">*</a>';
+              NoteHtml := NoteHtml + '<aside epub:type="footnote" id="fn' + IntToStr(NoteCount) + '"><p><a href="#r' + IntToStr(NoteCount) +
+                          '">*</a> ' + Trim(NB) + '</p></aside>' + #10;
+              End;
+            If InNote = 0 Then NB := '';
+            End;
+        ekText:
+          If Not ((InNote > 0) And XrefNote) Then
+            Begin
+            If Not NumDone And (InNote = 0) And (HeadDepth = 0) And (Trim(Txt) <> '') Then
+              Begin
+              O := O + '<sup class="vn">' + IntToStr(VerseNum) + '</sup> ';
+              NumDone := True;
+              End;
+            Emit(Esc(Txt));
+            End;
+        ekLine: If InNote = 0 Then O := O + '<br/>';
+        ekPara: If InNote = 0 Then O := O + '</p><p>';
+        ekItalicOn: If Not ((InNote > 0) And XrefNote) Then Emit('<i>');
+        ekItalicOff: If Not ((InNote > 0) And XrefNote) Then Emit('</i>');
+        ekBoldOn: If Not ((InNote > 0) And XrefNote) Then Emit('<b>');
+        ekBoldOff: If Not ((InNote > 0) And XrefNote) Then Emit('</b>');
+        ekJesusOn: If InNote = 0 Then O := O + '<span class="jesus">';
+        ekJesusOff: If InNote = 0 Then O := O + '</span>';
+        ekHeadOn: If InNote = 0 Then Begin O := O + '</p><h5 class="sh">'; Inc(HeadDepth); End;
+        ekHeadOff: If (InNote = 0) And (HeadDepth > 0) Then Begin O := O + '</h5><p>'; Dec(HeadDepth); End;
+      End;
+  WriteXhtml := O;
+  End;
+
+
 { RTF fragment, in the style of theWord's books and dictionaries: bold and italic groups, \par for breaks,
   \uN? for non-ASCII text, and Bible references as theWord hyperlinks (tw://bible id=book.chapter.verse) }
 Function WriteRTF(Const D: TDoc): AnsiString;
@@ -3178,6 +3253,34 @@ Function MkpTranslate(Const S: AnsiString; From, Dest: MkpFormat; Opts: MkpOpts)
     mfUSX: MkpTranslate := WriteUSX(D);
     mfMySword, mfTheWord: MkpTranslate := WriteGBF(D, True);       {theWord reads what MySword reads}
   End;
+  End;
+
+Function MkpToXhtml(Const S: AnsiString; From: MkpFormat; VerseNum: Integer; WithNotes: Boolean;
+  Var NoteCount: Integer; Var NoteHtml: AnsiString): AnsiString;
+  Var
+    D: TDoc;
+  Begin
+  D.N := 0;
+  SetLength(D.Ev, 16);
+  Case From Of
+    mfPlain: Add(D, ekText, S);
+    mfOSIS: ParseOSIS(S, D);
+    mfThML: ParseThML(S, D);
+    mfGBF: ParseGBF(S, D, False);
+    mfMySword: ParseGBF(S, D, True);
+    mfSTEP: ParseSTEP(S, D);
+    mfTheWord: ParseGBF(S, D, True, True);
+    mfVPL: ParseLight(S, D);
+    mfHTML: ParseHTML(S, D);
+    mfTEI: ParseTEI(S, D);
+    mfUSFM: ParseUSFM(S, D);
+    mfUSFX: ParseUSFX(S, D);
+    mfZefania: ParseZefania(S, D);
+    mfUSX: ParseUSX(S, D);
+  End;
+  Normalize(D);
+  Balance(D);
+  MkpToXhtml := WriteXhtml(D, VerseNum, WithNotes, NoteCount, NoteHtml);
   End;
 
 Function MkpSummary(Const S: AnsiString; From: MkpFormat): AnsiString;

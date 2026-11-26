@@ -14,7 +14,7 @@ if errorlevel 1 (
   echo fpc was not found on the PATH.  Install Lazarus or Free Pascal and add its bin folder to the PATH.
   exit /b 1
 )
-for %%u in (MKBibVrA MKBibVrs MKBibZ MKBibCph MKBibMkp MKBibMod MKBibAbs MKBibTxt MKBibSwd MKBibMys MKBibStp MKBibTwd MKBibVpl MKBibSql MKBibDic MKBibCom MKBibBok MKBibSwc MKDicSwd MKDicMys MKDicTwd MKDicAny MKComTwd MKBokTwd MKBibMem MKBibZef MKBibOsi MKBibUfx MKBibZip MKBibUsf MKBibUsx MKBibBeb MKBibUnb MKBibAny dictdump dicttest dictconv comtest boktest comrt bokrt bibtest bibdump bibimp bibconv bibmk mkpcheck stpdump mkbiblecfg mkbiblescan) do (
+for %%u in (MKBibVrA MKBibVrs MKBibZ MKBibCph MKBibMkp MKBibMod MKBibAbs MKBibTxt MKBibSwd MKBibMys MKBibStp MKBibTwd MKBibVpl MKBibSql MKBibDic MKBibCom MKBibBok MKBibSwc MKDicSwd MKDicMys MKDicTwd MKDicAny MKComTwd MKBokTwd MKBibMem MKBibZef MKBibOsi MKBibUfx MKBibZip MKBibUsf MKBibUsx MKBibBeb MKBibUnb MKBibAny dictdump dicttest dictconv comtest boktest comrt bokrt bibtest bibdump bibimp bibconv bibmk bibepub mkpcheck stpdump mkbiblecfg mkbiblescan) do (
   fpc -B -Fusrc -Fisrc -FUbuild -FEbuild -vew src\%%u.pas
   if errorlevel 1 (
     echo failed: %%u

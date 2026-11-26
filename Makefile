@@ -11,7 +11,7 @@ BINDIR  ?= $(PREFIX)/bin
 DOCDIR  ?= $(PREFIX)/share/doc/mkbible
 
 # the programs people use; the rest in build/ (bibtest, dicttest, comrt, ...) are test and inspection tools
-PROGRAMS = mkbible bibconv dictconv bibimp bibdump bibmk
+PROGRAMS = mkbible bibconv dictconv bibimp bibdump bibmk bibepub
 
 deb: build/mkbible
 	tools/mkdeb.sh

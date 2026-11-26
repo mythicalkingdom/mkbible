@@ -21,11 +21,16 @@ references, Strong's numbers and morphology wherever the target can carry them.
   Alt+O module list from configured paths, Alt+C copy, `/` search (plain or regular expression), colors.
 * `bibconv`, `dictconv` - convert modules between formats.  `bibdump`, `bibtest`, `bibimp`, `dicttest`,
   `comtest`, `boktest` - inspect and build modules.  `bibmk` - try the markup translator.
+* `bibepub` - export any module as an EPUB 3 book: `bibepub NASB1995 -o nasb.epub`.  One XHTML file per book and a
+  nested table of contents (Bible > Old / New Testament > book > chapter) in the EPUB 3 nav document, plus the EPUB 2
+  `toc.ncx`.  Verse numbers are small superscripts, words of Jesus are red, section headings and poetry lines are
+  kept, footnotes become pop-up notes.  `-t "Title"` sets the title, `-s` makes the contents books only, `-N` leaves
+  the footnotes out, `-k <key>` unlocks an enciphered module.  Strong's numbers and cross references are not carried.
 * `tools/regress.sh` - the regression suite: checks against Sword's own `mod2imp`, `diatheke` and
   `vpl2mod`, independent Python readers, and round trips.  Checks that need sample files on the
   author's machine are skipped when the files are not there.
 
-Build with `make` (or `./build.sh`); `make install` puts `mkbible`, `bibconv`, `dictconv`, `bibimp`, `bibdump` and `bibmk` (and `mkbiblegui`, if `make gui` built it) in
+Build with `make` (or `./build.sh`); `make install` puts `mkbible`, `bibconv`, `dictconv`, `bibimp`, `bibdump`, `bibmk` and `bibepub` (and `mkbiblegui`, if `make gui` built it) in
 `$(PREFIX)/bin` (default `/usr/local`; `DESTDIR` works for packaging), `make uninstall` removes them, `make deb` builds a Debian package (`build/mkbible_<version>_<arch>.deb`, with `mkbiblegui`
 and its menu entry when it was built), `make check` runs the regression suite.
 
