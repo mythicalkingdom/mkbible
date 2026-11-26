@@ -113,7 +113,9 @@ not been tried yet.
 The converters and `mkbibleg` are written to build on Windows (the text mode `mkbible` reader is Unix only). Install
 Lazarus (it brings the Free Pascal compiler), put `fpc` and `lazbuild` on the PATH, install the BGRABitmap and
 BGRAControls packages (see `gui\README.md`) and run `build.bat gui`; `build.bat` alone builds only the command line
-tools. MySword and theWord modules need a 64 bit `sqlite3.dll` next to the programs. The configuration is kept in
+tools. Downloading modules needs the OpenSSL 3 DLLs (`libssl-3-x64.dll` and `libcrypto-3-x64.dll`, for example from
+`winget install ShiningLight.OpenSSL.Light`) next to the programs. MySword and theWord modules use the `winsqlite3.dll` that
+Windows 10 and 11 include, or a 64 bit `sqlite3.dll` next to the programs. The configuration is kept in
 `%APPDATA%\mkbible`. This has not been tried on a Windows machine yet.
 
 ## License

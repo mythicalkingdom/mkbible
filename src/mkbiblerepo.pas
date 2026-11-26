@@ -52,7 +52,28 @@ function SystemLangName: String;
 implementation
 
 uses
-  SysUtils, Classes, fphttpclient, opensslsockets, zstream, zipper, mkbiblecfg;
+  SysUtils, Classes, fphttpclient, opensslsockets, openssl, zstream, zipper, mkbiblecfg;
+
+{ ------------------------------------------------------------------ OpenSSL }
+
+{ FPC 3.2.2 knows OpenSSL 1.x names and, on Unix, only the unversioned libssl.so (a developer package link): a normal
+  system with libssl.so.3 would fail with "could not initialize openssl library".  Teach it the OpenSSL 3 names, first,
+  and keep the 1.x ones as the fallback. }
+procedure PrepareSsl;
+begin
+{$IFDEF WINDOWS}
+  {$IFDEF WIN64}
+  DLLSSLName := 'libssl-3-x64.dll';
+  DLLUtilName := 'libcrypto-3-x64.dll';
+  {$ELSE}
+  DLLSSLName := 'libssl-3.dll';
+  DLLUtilName := 'libcrypto-3.dll';
+  {$ENDIF}
+{$ELSE}
+  DLLVersions[2] := '.3';
+  DLLVersions[3] := '.1.1';
+{$ENDIF}
+end;
 
 { ------------------------------------------------------------------ language names }
 
@@ -536,5 +557,8 @@ begin
   else
     Result := DirectoryExists(IncludeTrailingPathDelimiter(LocalModuleDir) + It.Id + '-usfm');
 end;
+
+initialization
+  PrepareSsl;
 
 end.
