@@ -86,7 +86,7 @@ Filename: "{app}\{#MyExe}"; Description: "Start mkbible"; Flags: nowait postinst
 ; The user's settings and modules (%APPDATA%\mkbible, %APPDATA%\Sword) are left alone when uninstalling.
 
 [Code]
-{ the registry key for the Path matching how this installer runs; True when {app} is not in it yet }
+{ True when the install folder is not in the Path of that registry key yet (the key that matches how this installer runs) }
 function NeedsAddPath(Root, Key: string): Boolean;
 var
   Paths: string;
