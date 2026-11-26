@@ -692,7 +692,7 @@ begin
           end
         else begin InTitle := True; TitleBuf := ''; end;
         end
-      else if (Nm = 'lb') or (Nm = 'p') then
+      else if (Nm = 'lb') or (Nm = 'p') or ((Nm = 'milestone') and (AttrOf(Tg, 'type') = 'x-p')) then
         begin
         if (not Closing) then begin if NumDone then Push(tkBreak, ''); LastWord := False; Gap := True; end;
         end;
