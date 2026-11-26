@@ -7,7 +7,7 @@ uses
   Classes, SysUtils, StrUtils, Graphics, Forms, Controls, StdCtrls, ExtCtrls, Menus, Clipbrd, LCLType, Math, Dialogs,
   BGRABitmap, BGRABitmapTypes, BGRAVirtualScreen, BCButton, BCTypes,
   LazUTF8, Types, uTheme, uDialogs,
-  MKBibMod, MKBibAbs, MKBibAny, MKBibMkp, MKBibDic, MKDicAny, mkbiblecfg, mkbiblescan;
+  MKBibMod, MKBibAbs, MKBibAny, MKBibMkp, MKBibDic, MKDicAny, mkbiblecfg, mkbiblescan, mkbiblerepo;
 
 type
   TTokKind = (tkWord, tkNum, tkHead, tkBreak, tkGap, tkNote);
@@ -242,6 +242,7 @@ constructor TMainForm.Create(TheOwner: TComponent);
 var
   Cur: String;
   B, C, N, i, P2: Integer;
+  Def: TStringArray;
 begin
   inherited CreateNew(TheOwner);
   Scaled := False;
@@ -275,6 +276,18 @@ begin
   CurBook := 1; CurChap := 1;
   BuildUI;
   ApplyTheme;
+  { a first run has no module folders yet: start with the places downloaded and installed modules go }
+  if Length(LoadPaths) = 0 then
+    begin
+    SetLength(Def, 0);
+    SetLength(Def, 2);
+    Def[0] := SwordInstallDir;
+    Def[1] := LocalModuleDir;
+{$IFNDEF WINDOWS}
+    if DirectoryExists('/usr/share/sword') then begin SetLength(Def, 3); Def[2] := '/usr/share/sword'; end;
+{$ENDIF}
+    SavePaths(Def);
+    end;
   { the tabs of last time; else one tab with the last module }
   N := StrToIntDef(GetSetting('gui.tabs', '0'), 0);
   for i := 1 to N do
@@ -1350,6 +1363,8 @@ begin
     Bitmap.FontHeight := S_(20);
     Bitmap.FontStyle := [];
     Bitmap.TextOut(Pane.Width div 2, Pane.Height div 2 - S_(24), 'Choose a module to begin', Pix(Theme.Muted), taCenter);
+    Bitmap.FontHeight := S_(15);
+    Bitmap.TextOut(Pane.Width div 2, Pane.Height div 2 + S_(14), 'No Bible yet? Settings, Download modules… lists many to choose from.', Pix(Theme.Muted), taCenter);
     Exit;
     end;
   if SearchMode and (Length(Hits) = 0) then
@@ -1758,7 +1773,7 @@ begin
   if Length(Mods) = 0 then
     begin
     Mi := TMenuItem.Create(Pop);
-    Mi.Caption := 'No modules found (add paths with mkbible, File, Module Paths)';
+    Mi.Caption := 'No modules found: Settings, Download modules… gets some, Module folders… adds a folder';
     Mi.Enabled := False;
     Pop.Items.Add(Mi);
     end;

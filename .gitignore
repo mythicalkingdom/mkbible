@@ -5,3 +5,6 @@ OLIVETREE.md
 WORDSEARCH.md
 gui/*.res
 ANDROID-SETUP.md
+installer/Output/
+installer/redist/*
+!installer/redist/README.md

@@ -105,18 +105,21 @@ folders (`~/.config/mkbible/mkbible.cfg`, `%APPDATA%\mkbible` on Windows).
 * **Search** with highlighted hits (click one to go there), **text size** (A−, A+), a **reading font** chooser, **module
   folders** editing, HiDPI scaling, and a menu bar (File, View, Settings, Help).
 
-Build it with `make gui` (needs Lazarus 4, BGRABitmap and BGRAControls, see `gui/README.md`). The Windows build has
-not been tried yet.
+Build it with `make gui` (needs Lazarus 4, BGRABitmap and BGRAControls, see `gui/README.md`). A Windows build is
+described below.
 
 ## Windows
 
-The converters and `mkbibleg` are written to build on Windows (the text mode `mkbible` reader is Unix only). Install
-Lazarus (it brings the Free Pascal compiler), put `fpc` and `lazbuild` on the PATH, install the BGRABitmap and
+The converters and `mkbibleg` build on 64 bit Windows (the text mode `mkbible` reader is Unix only; the GUI has been
+built and run there, but only lightly tested). Install Lazarus (it brings the Free Pascal compiler; the compiler on the
+PATH must be the 64 bit one, `fpc -iTP` prints `x86_64`), put `fpc` and `lazbuild` on the PATH, install the BGRABitmap and
 BGRAControls packages (see `gui\README.md`) and run `build.bat gui`; `build.bat` alone builds only the command line
-tools. Downloading modules needs the OpenSSL 3 DLLs (`libssl-3-x64.dll` and `libcrypto-3-x64.dll`, for example from
-`winget install ShiningLight.OpenSSL.Light`) next to the programs. MySword and theWord modules use the `winsqlite3.dll` that
-Windows 10 and 11 include, or a 64 bit `sqlite3.dll` next to the programs. The configuration is kept in
-`%APPDATA%\mkbible`. This has not been tried on a Windows machine yet.
+tools. Downloading modules needs the OpenSSL **3** DLLs (`libssl-3-x64.dll` and `libcrypto-3-x64.dll`) next to the
+programs; OpenSSL 4 does not work. MySword and theWord modules use the `winsqlite3.dll` that Windows 10 and 11
+include, or a 64 bit `sqlite3.dll` next to the programs. The configuration is kept in `%APPDATA%\mkbible`.
+
+`installer\build-installer.bat` builds an [Inno Setup](https://jrsoftware.org/isinfo.php) installer (see
+`installer\README.md`).
 
 ## License
 
