@@ -1,4 +1,4 @@
-# mkbiblegui - a GUI Bible reader
+# mkbibleg - a GUI Bible reader
 
 A simple, modern looking Bible reader on the same Bible objects as the text mode `mkbible`: a pop-up book and
 chapter picker, a centered reading column in a serif face (red letters, italics, verse numbers), search with
@@ -10,7 +10,7 @@ Build (Lazarus 4 and its LCL for GTK2 are needed; GTK3 / Qt6 only need a differe
     git clone https://github.com/bgrabitmap/bgracontrols ~/lazarus-packages/bgracontrols
     lazbuild --add-package-link ~/lazarus-packages/bgrabitmap/bgrabitmap/bgrabitmappack.lpk
     lazbuild --add-package-link ~/lazarus-packages/bgracontrols/bgracontrols.lpk
-    make gui          # build/mkbiblegui
+    make gui          # build/mkbibleg
 
 It reads the module paths of `mkbible` (`~/.config/mkbible/mkbible.cfg`) and keeps its own `gui.*` settings there.
 Strong's numbers: in a module that carries them (for example the Sword KJV with Strong's), words with a number are
@@ -32,5 +32,5 @@ Known limits: the module list is a native pop-up menu, and search is a plain cas
 
 HiDPI: every size is scaled by the screen's dpi / 96 (checked at 96 and 144 dpi).  Windows: nothing in the GUI is
 Unix specific, the config goes to `%APPDATA%\\mkbible`, and the font lists include Georgia and Segoe UI; build it
-there with `build.bat gui` (or `lazbuild --ws=win32 gui\mkbiblegui.lpi`).  MySword and theWord modules need `sqlite3.dll`
+there with `build.bat gui` (or `lazbuild --ws=win32 gui\mkbibleg.lpi`).  MySword and theWord modules need `sqlite3.dll`
 next to the program.  That build has not been tried.

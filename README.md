@@ -30,8 +30,8 @@ references, Strong's numbers and morphology wherever the target can carry them.
   `vpl2mod`, independent Python readers, and round trips.  Checks that need sample files on the
   author's machine are skipped when the files are not there.
 
-Build with `make` (or `./build.sh`); `make install` puts `mkbible`, `bibconv`, `dictconv`, `bibimp`, `bibdump`, `bibmk` and `bibepub` (and `mkbiblegui`, if `make gui` built it) in
-`$(PREFIX)/bin` (default `/usr/local`; `DESTDIR` works for packaging), `make uninstall` removes them, `make deb` builds a Debian package (`build/mkbible_<version>_<arch>.deb`, with `mkbiblegui`
+Build with `make` (or `./build.sh`); `make install` puts `mkbible`, `bibconv`, `dictconv`, `bibimp`, `bibdump`, `bibmk` and `bibepub` (and `mkbibleg`, if `make gui` built it) in
+`$(PREFIX)/bin` (default `/usr/local`; `DESTDIR` works for packaging), `make uninstall` removes them, `make deb` builds a Debian package (`build/mkbible_<version>_<arch>.deb`, with `mkbibleg`
 and its menu entry when it was built), `make check` runs the regression suite.
 
 Needs Free Pascal 3.2 and `libsqlite3` at run time (MySword, theWord).  `NOTES` on formats that were looked at and
@@ -63,18 +63,18 @@ Module paths are added, edited (Enter) and deleted (Delete key) under File, Modu
 changes the screen colors. Searches highlight the matches in the text. The configuration is kept in
 `~/.config/mkbible/mkbible.cfg`.
 
-## The mkbiblegui reader
+## The mkbibleg reader
 
-![mkbiblegui, light theme, with some text selected](docs/mkbiblegui.png)
+![mkbibleg, light theme, with some text selected](docs/mkbibleg.png)
 
-`mkbiblegui` is a graphical reader on the same Bible objects, drawn with BGRABitmap / BGRAControls on Lazarus: a
+`mkbibleg` is a graphical reader on the same Bible objects, drawn with BGRABitmap / BGRAControls on Lazarus: a
 a book and chapter picker (one pop-up with every book and chapter on screen), a centered reading column in a serif face with red letters, italics, headings
 and small verse numbers, and light and dark themes. It opens the same modules as `mkbible` and shares its module
 folders (`~/.config/mkbible/mkbible.cfg`, `%APPDATA%\mkbible` on Windows).
 
-![mkbiblegui, dark theme, with a Strong's pop-up](docs/mkbiblegui-strongs.png)
+![mkbibleg, dark theme, with a Strong's pop-up](docs/mkbibleg-strongs.png)
 
-![mkbiblegui, the book and chapter picker](docs/mkbiblegui-goto.png)
+![mkbibleg, the book and chapter picker](docs/mkbibleg-goto.png)
 
 * **Tabs:** several texts open at once, each with its own module, location and search; font size, theme and the copy
   settings are shared. Ctrl+T opens a new tab (a copy of this one), Ctrl+W closes it, Ctrl+Shift+T brings back the tab closed last (at its old place), drag a tab to move it, Ctrl+Tab / Ctrl+Shift+Tab (or
@@ -110,7 +110,7 @@ not been tried yet.
 
 ## Windows
 
-The converters and `mkbiblegui` are written to build on Windows (the text mode `mkbible` reader is Unix only). Install
+The converters and `mkbibleg` are written to build on Windows (the text mode `mkbible` reader is Unix only). Install
 Lazarus (it brings the Free Pascal compiler), put `fpc` and `lazbuild` on the PATH, install the BGRABitmap and
 BGRAControls packages (see `gui\README.md`) and run `build.bat gui`; `build.bat` alone builds only the command line
 tools. MySword and theWord modules need a 64 bit `sqlite3.dll` next to the programs. The configuration is kept in

@@ -1,7 +1,7 @@
 @echo off
 rem Build the MK Bible units and the programs on Windows into .\build   (the Windows counterpart of build.sh)
 rem   build.bat           the command line tools (bibconv, dictconv, bibimp, bibdump, bibmk, ...)
-rem   build.bat gui       also the GUI reader, mkbiblegui.exe (needs Lazarus: lazbuild on the PATH, plus the
+rem   build.bat gui       also the GUI reader, mkbibleg.exe (needs Lazarus: lazbuild on the PATH, plus the
 rem                       BGRABitmap and BGRAControls packages, see gui\README.md)
 rem Needs the Free Pascal compiler (fpc) on the PATH; Lazarus installs one.  The text mode reader (mkbible) is Unix
 rem only and is not built here.  MySword and theWord modules need sqlite3.dll (64 bit) next to the programs.
@@ -28,8 +28,8 @@ if /i "%~1"=="gui" (
     echo lazbuild was not found on the PATH; add the Lazarus folder to the PATH to build the GUI.
     exit /b 1
   )
-  lazbuild --ws=win32 gui\mkbiblegui.lpi
+  lazbuild --ws=win32 gui\mkbibleg.lpi
   if errorlevel 1 exit /b 1
-  echo GUI built: build\mkbiblegui.exe
+  echo GUI built: build\mkbibleg.exe
 )
 endlocal

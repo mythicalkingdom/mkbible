@@ -245,7 +245,7 @@ var
 begin
   inherited CreateNew(TheOwner);
   Scaled := False;
-  { the application icon (gui/mkbiblegui.ico, built in as MAINICON) for the window }
+  { the application icon (gui/mkbibleg.ico, built in as MAINICON) for the window }
   try
     Application.Icon.LoadFromResourceName(HInstance, 'MAINICON');
     Icon.Assign(Application.Icon);

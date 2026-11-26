@@ -9,7 +9,7 @@
         <MainUnitHasScaledStatement Value="False"/>
       </Flags>
       <SessionStorage Value="InProjectDir"/>
-      <Title Value="mkbiblegui"/>
+      <Title Value="mkbibleg"/>
       <UseAppBundle Value="False"/>
       <ResourceType Value="res"/>
       <Icon Value="0"/>
@@ -39,7 +39,7 @@
     </RequiredPackages>
     <Units>
       <Unit>
-        <Filename Value="mkbiblegui.lpr"/>
+        <Filename Value="mkbibleg.lpr"/>
         <IsPartOfProject Value="True"/>
       </Unit>
       <Unit>
@@ -51,7 +51,7 @@
   <CompilerOptions>
     <Version Value="11"/>
     <Target>
-      <Filename Value="../build/mkbiblegui"/>
+      <Filename Value="../build/mkbibleg"/>
     </Target>
     <SearchPaths>
       <IncludeFiles Value="../src"/>

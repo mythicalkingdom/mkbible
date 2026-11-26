@@ -1,6 +1,6 @@
 #!/bin/sh
 # Build a Debian package from the build/ directory:  tools/mkdeb.sh  (or make deb)
-#   build/mkbible_<version>_<arch>.deb  with the programs, the documents and, if build/mkbiblegui exists
+#   build/mkbible_<version>_<arch>.deb  with the programs, the documents and, if build/mkbibleg exists
 #   (make gui), the GUI reader with its menu entry.  Run ./build.sh (and make gui) first.
 set -e
 cd "$(dirname "$0")/.."
@@ -40,7 +40,7 @@ EOF
 gzip -9n "$STAGE/usr/share/doc/mkbible/changelog"
 DEPS="libc6"
 DESC="Bible module tools and a text mode Bible reader"
-if [ -x "$STAGE/usr/bin/mkbiblegui" ]; then
+if [ -x "$STAGE/usr/bin/mkbibleg" ]; then
   DEPS="$DEPS, libgtk2.0-0t64 | libgtk2.0-0, libssl3t64 | libssl3 | libssl1.1"
   DESC="$DESC, with a GUI reader"
 fi
@@ -61,7 +61,7 @@ Description: $DESC
  Free Pascal objects and programs for Bible modules: Sword, MySword, theWord,
  STEP, OSIS, Zefania, USFX, USFM, USX, Beblia, Unbound and verse-per-line files.
  Includes converters between the formats (bibconv, dictconv), inspection tools,
- mkbible, a text mode reader, and, when built with Lazarus, mkbiblegui.
+ mkbible, a text mode reader, and, when built with Lazarus, mkbibleg.
 EOF
 find "$STAGE" -type d -exec chmod 755 {} +
 find "$STAGE/usr/share" -type f -exec chmod 644 {} +
