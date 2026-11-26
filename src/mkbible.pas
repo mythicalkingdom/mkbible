@@ -21,7 +21,7 @@ uses
   MKBibMod, MKBibAbs, MKBibAny, mkbiblecfg, mkbiblescan;
 
 const
-  VERSION = '0.2.0';
+  VERSION = '0.3.0';
   cmNone        = 0;
   cmOpenModule  = 1;
   cmPaths       = 2;
