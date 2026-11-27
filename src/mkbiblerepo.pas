@@ -141,6 +141,7 @@ begin
   AddRepo(Repos, 'CrossWire (beta)', 'https://www.crosswire.org/ftpmirror/pub/sword/betaraw', rkSword);
   AddRepo(Repos, 'CrossWire (attic)', 'https://www.crosswire.org/ftpmirror/pub/sword/atticraw', rkSword);
   AddRepo(Repos, 'CrossWire (Wycliffe)', 'https://www.crosswire.org/ftpmirror/pub/sword/wyclifferaw', rkSword);
+  AddRepo(Repos, 'CrossWire (Lockman: NASB, NBLA, LBLA)', 'https://www.crosswire.org/ftpmirror/pub/sword/lockmanraw', rkSword);
   AddRepo(Repos, 'eBible.org (Sword)', 'https://ebible.org/sword', rkSword);
   AddRepo(Repos, 'eBible.org (USFM)', 'https://ebible.org/Scriptures', rkEBible);
   for i := 1 to 9 do

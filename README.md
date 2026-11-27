@@ -93,7 +93,7 @@ folders (`~/.config/mkbible/mkbible.cfg`, `%APPDATA%\mkbible` on Windows).
 * **Notes:** footnotes (*) and cross references (†) are marked in the text; a click opens a pop-up with the note or the
   referenced verses. View, Hide cross references (Ctrl+R) removes the † marks, and the choice is remembered.
 * **Download modules:** Settings, Download modules... lists what is available from the built in repositories
-  (CrossWire main, beta, attic and Wycliffe, eBible.org as Sword modules, and eBible.org's USFM Bibles), with a language
+  (CrossWire main, beta, attic, Wycliffe and Lockman, which has the NASB, NBLA and LBLA, eBible.org as Sword modules, and eBible.org's USFM Bibles), with a language
   drop-down (it starts on your system language) and a search box, and installs the chosen one. Sword modules go into `~/.sword` (`%APPDATA%\Sword` on Windows) and USFM Bibles
   into `~/.local/share/mkbible/modules`; either folder is added to the module folders when needed. Locked modules
   (those that need a purchased key) are not listed. More repositories can be added to `mkbible.cfg` as
