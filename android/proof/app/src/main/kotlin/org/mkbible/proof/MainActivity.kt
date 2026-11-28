@@ -36,6 +36,7 @@ import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
 import androidx.compose.material3.TopAppBar
 import androidx.compose.runtime.Composable
+import kotlinx.coroutines.launch
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableIntStateOf
@@ -93,6 +94,7 @@ fun Reader(store: ModuleStore, prefs: SharedPreferences) {
     var showXref by remember { mutableStateOf(prefs.getBoolean("xref", true)) }
     var viewMenu by remember { mutableStateOf(false) }
     var openNote by remember { mutableStateOf<NoteItem?>(null) }
+    var downloading by remember { mutableStateOf(false) }
 
     fun openModule(m: ModInfo) {
         val h = Native.open(m.conf)
@@ -190,10 +192,11 @@ fun Reader(store: ModuleStore, prefs: SharedPreferences) {
                 })
         }
     }
+    if (downloading) DownloadScreen(store, { downloading = false }) { mods = store.list() }
     openNote?.let { n ->
         NoteDialog(bible, n, { openNote = null }) { bk, ch -> openNote = null; go(bk, ch) }
     }
-    if (modPicker) ModulePicker(mods, bible.name, { modPicker = false },
+    if (modPicker) ModulePicker(mods, bible.name, { modPicker = false }, { modPicker = false; downloading = true },
         { modPicker = false; importer.launch(arrayOf("application/zip", "application/octet-stream")) }) {
         modPicker = false; openModule(it)
     }
@@ -294,7 +297,7 @@ fun SearchScreen(bible: Bible, onClose: () -> Unit, onPick: (Int, Int) -> Unit) 
 }
 
 @Composable
-fun ModulePicker(mods: List<ModInfo>, current: String, onClose: () -> Unit, onImport: () -> Unit, onPick: (ModInfo) -> Unit) {
+fun ModulePicker(mods: List<ModInfo>, current: String, onClose: () -> Unit, onDownload: () -> Unit, onImport: () -> Unit, onPick: (ModInfo) -> Unit) {
     androidx.compose.ui.window.Dialog(onClose, androidx.compose.ui.window.DialogProperties(usePlatformDefaultWidth = false)) {
         Surface(Modifier.fillMaxSize()) {
             Column(Modifier.padding(16.dp)) {
@@ -309,7 +312,8 @@ fun ModulePicker(mods: List<ModInfo>, current: String, onClose: () -> Unit, onIm
                         HorizontalDivider()
                     }
                 }
-                Button(onImport, Modifier.fillMaxWidth().padding(top = 8.dp)) { Text("Import a Sword module (.zip)") }
+                Button(onDownload, Modifier.fillMaxWidth().padding(top = 8.dp)) { Text("Download modules…") }
+                OutlinedButton(onImport, Modifier.fillMaxWidth()) { Text("Import a Sword module (.zip)") }
                 TextButton(onClose) { Text("Close") }
             }
         }
@@ -336,4 +340,98 @@ fun NoteDialog(bible: Bible, note: NoteItem, onClose: () -> Unit, onGo: (Int, In
             }
         },
     )
+}
+
+@Composable
+fun DownloadScreen(store: ModuleStore, onClose: () -> Unit, onInstalled: () -> Unit) {
+    var repo by remember { mutableStateOf(DEFAULT_REPOS[0]) }
+    var items by remember { mutableStateOf<List<RepoItem>?>(null) }
+    var error by remember { mutableStateOf<String?>(null) }
+    var query by remember { mutableStateOf("") }
+    var lang by remember { mutableStateOf("") }          // "" = all languages
+    var repoMenu by remember { mutableStateOf(false) }
+    var langMenu by remember { mutableStateOf(false) }
+    var busy by remember { mutableStateOf<String?>(null) }
+    var installedTick by remember { mutableIntStateOf(0) }
+    var status by remember { mutableStateOf<String?>(null) }
+    val scope = androidx.compose.runtime.rememberCoroutineScope()
+
+    LaunchedEffect(repo) {
+        items = null; error = null
+        try {
+            items = kotlinx.coroutines.withContext(kotlinx.coroutines.Dispatchers.IO) { RepoClient.list(repo) }
+        } catch (e: Exception) { error = e.message ?: "Cannot read the repository" }
+    }
+    fun install(it: RepoItem) {
+        scope.launch {
+            busy = "Downloading ${it.id}…"; status = null
+            try {
+                val err = kotlinx.coroutines.withContext(kotlinx.coroutines.Dispatchers.IO) {
+                    val zip = RepoClient.download(repo, it.id) { n, t ->
+                        busy = "Downloading ${it.id}… " + (if (t > 0) "${n * 100 / t}%" else "${n / 1024} KB")
+                    }
+                    store.importStream(zip.inputStream())
+                }
+                status = err ?: "${it.id} installed"
+                if (err == null) { installedTick++; onInstalled() }
+            } catch (e: Exception) { status = e.message ?: "Download failed" }
+            busy = null
+        }
+    }
+
+    androidx.compose.ui.window.Dialog(onClose, androidx.compose.ui.window.DialogProperties(usePlatformDefaultWidth = false)) {
+        Surface(Modifier.fillMaxSize()) {
+            Column(Modifier.padding(16.dp)) {
+                Text("Download modules", fontSize = 20.sp)
+                Box {
+                    OutlinedButton({ repoMenu = true }, Modifier.fillMaxWidth()) { Text(repo.name, maxLines = 1) }
+                    androidx.compose.material3.DropdownMenu(repoMenu, { repoMenu = false }) {
+                        DEFAULT_REPOS.forEach { r ->
+                            androidx.compose.material3.DropdownMenuItem(text = { Text(r.name) },
+                                onClick = { repo = r; repoMenu = false; lang = "" })
+                        }
+                    }
+                }
+                val all = items
+                if (all != null) {
+                    val langs = remember(all) { all.map { it.language }.distinct().sorted() }
+                    Row(Modifier.fillMaxWidth().padding(top = 4.dp), horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                        Box(Modifier.weight(1f)) {
+                            OutlinedButton({ langMenu = true }, Modifier.fillMaxWidth()) { Text(if (lang.isEmpty()) "All languages" else lang, maxLines = 1) }
+                            androidx.compose.material3.DropdownMenu(langMenu, { langMenu = false }) {
+                                androidx.compose.material3.DropdownMenuItem(text = { Text("All languages") }, onClick = { lang = ""; langMenu = false })
+                                langs.forEach { l ->
+                                    androidx.compose.material3.DropdownMenuItem(text = { Text(l) }, onClick = { lang = l; langMenu = false })
+                                }
+                            }
+                        }
+                    }
+                    OutlinedTextField(query, { query = it }, Modifier.fillMaxWidth().padding(top = 4.dp),
+                        label = { Text("Filter by name") }, singleLine = true)
+                    val shown = all.filter { (lang.isEmpty() || it.language == lang) &&
+                        (query.isBlank() || it.id.contains(query, true) || it.description.contains(query, true)) }
+                    Text("${shown.size} of ${all.size} modules", fontSize = 13.sp, modifier = Modifier.padding(top = 4.dp))
+                    LazyColumn(Modifier.weight(1f)) {
+                        items(shown) { m ->
+                            val inst = remember(installedTick, m) { store.isInstalled(m.id) }
+                            Column(Modifier.fillMaxWidth().clickable(enabled = busy == null && !inst) { install(m) }.padding(vertical = 8.dp)) {
+                                Text(m.id + (if (inst) "  (installed)" else ""), fontSize = 17.sp,
+                                    color = if (inst) MaterialTheme.colorScheme.primary else Color.Unspecified)
+                                Text(m.description + " · " + m.language, fontSize = 13.sp, maxLines = 2)
+                            }
+                            HorizontalDivider()
+                        }
+                    }
+                } else {
+                    Box(Modifier.weight(1f).fillMaxWidth(), contentAlignment = Alignment.Center) {
+                        Text(error ?: "Loading the list…", color = if (error != null) MaterialTheme.colorScheme.error else Color.Unspecified)
+                    }
+                }
+                busy?.let { Text(it, Modifier.padding(vertical = 4.dp)) }
+                status?.let { Text(it, Modifier.padding(vertical = 4.dp)) }
+                Text("Tap a module to install it.", fontSize = 12.sp)
+                TextButton(onClose) { Text("Close") }
+            }
+        }
+    }
 }

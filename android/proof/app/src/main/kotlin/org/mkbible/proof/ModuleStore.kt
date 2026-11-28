@@ -25,9 +25,16 @@ class ModuleStore(private val root: File) {
 
     /** Unpacks a Sword module zip (mods.d/x.conf and modules/...). Returns an error message or null. */
     fun importZip(cr: ContentResolver, uri: Uri): String? {
+        val raw = try { cr.openInputStream(uri) } catch (e: Exception) { null } ?: return "Cannot read that file"
+        return importStream(raw)
+    }
+
+    fun isInstalled(id: String) = File(confDir, id.lowercase() + ".conf").exists() || File(confDir, "$id.conf").exists()
+
+    fun importStream(raw: java.io.InputStream): String? {
         var files = 0
         try {
-            cr.openInputStream(uri)?.use { raw ->
+            raw.use { raw ->
                 ZipInputStream(raw).use { z ->
                     while (true) {
                         val e = z.nextEntry ?: break
@@ -40,7 +47,7 @@ class ModuleStore(private val root: File) {
                         files++
                     }
                 }
-            } ?: return "Cannot read that file"
+            }
         } catch (e: Exception) {
             return "Import failed: ${e.message}"
         }
