@@ -27,6 +27,7 @@ import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.width
+import androidx.compose.foundation.layout.widthIn
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.grid.GridCells
 import androidx.compose.foundation.lazy.grid.LazyVerticalGrid
@@ -69,6 +70,7 @@ import androidx.compose.ui.Modifier
 import androidx.compose.foundation.gestures.detectTapGestures
 import androidx.compose.ui.input.pointer.pointerInput
 import androidx.compose.ui.focus.focusRequester
+import androidx.compose.ui.res.imageResource
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.text.font.FontFamily
@@ -134,6 +136,7 @@ fun Reader(store: ModuleStore, prefs: SharedPreferences, look: Look, dark: Boole
     var openNote by remember { mutableStateOf<NoteItem?>(null) }
     var downloading by remember { mutableStateOf(false) }
     var settings by remember { mutableStateOf(false) }
+    var about by remember { mutableStateOf(false) }
     val lexicons = remember { Lexicons(store) }
     var strongOn by remember { mutableStateOf(prefs.getBoolean("strong", true)) }
     var openStrong by remember { mutableStateOf<Pair<String, String>?>(null) }
@@ -311,6 +314,8 @@ fun Reader(store: ModuleStore, prefs: SharedPreferences, look: Look, dark: Boole
                             HorizontalDivider()
                             androidx.compose.material3.DropdownMenuItem(
                                 text = { Text("Settings…") }, onClick = { viewMenu = false; settings = true })
+                            androidx.compose.material3.DropdownMenuItem(
+                                text = { Text("About") }, onClick = { viewMenu = false; about = true })
                         }
                     }
                 },
@@ -349,6 +354,27 @@ fun Reader(store: ModuleStore, prefs: SharedPreferences, look: Look, dark: Boole
         }
     }
     openStrong?.let { (nums, word) -> StrongsDialog(lexicons, store, nums, word) { openStrong = null } }
+    if (about) {
+        val version = remember { try { context.packageManager.getPackageInfo(context.packageName, 0).versionName ?: "" } catch (e: Exception) { "" } }
+        androidx.compose.material3.AlertDialog(onDismissRequest = { about = false },
+            confirmButton = { TextButton({ about = false }) { Text("OK") } },
+            text = {
+                Column(Modifier.widthIn(max = 250.dp)) {
+                    // name and version on the left, the logo on the right (pixel art: scaled without smoothing)
+                    Row(Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically) {
+                        Column(Modifier.weight(1f)) {
+                            Text("mkbible", fontSize = 26.sp, fontWeight = androidx.compose.ui.text.font.FontWeight.Medium)
+                            Text("Version $version", fontSize = 16.sp)
+                        }
+                        androidx.compose.foundation.Image(
+                            androidx.compose.ui.graphics.ImageBitmap.imageResource(R.drawable.smcastle), contentDescription = "Mythical Kingdom Software",
+                            Modifier.width(100.dp), filterQuality = androidx.compose.ui.graphics.FilterQuality.None)
+                    }
+                    Text("Free software, GNU GPL version 3.", Modifier.padding(top = 16.dp), fontSize = 14.sp)
+                    Text("github.com/mythicalkingdom/mkbible", fontSize = 14.sp, color = MaterialTheme.colorScheme.primary)
+                }
+            })
+    }
     if (settings) SettingsDialog(look, dark, onLook) { settings = false }
     if (downloading) DownloadScreen(store, { downloading = false }) { mods = store.list(); lexicons.reset() }
     openNote?.let { n ->
