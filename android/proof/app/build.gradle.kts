@@ -1,4 +1,5 @@
 import java.net.URL
+import java.util.Properties
 import java.util.zip.ZipInputStream
 
 plugins {
@@ -7,25 +8,39 @@ plugins {
     id("org.jetbrains.kotlin.plugin.compose")
 }
 android {
-    namespace = "org.mkbible.proof"
+    namespace = "com.mythicalkingdom.mkbible"
     compileSdk = 35
     defaultConfig {
-        applicationId = "org.mkbible.proof"
+        applicationId = "com.mythicalkingdom.mkbible"
         minSdk = 24
         targetSdk = 35
         versionCode = 1
-        versionName = "0.0.1"
+        versionName = "0.1.0"
         ndk { abiFilters += listOf("arm64-v8a", "x86_64") }
     }
+    // Release signing: the key lives outside the repository.  The properties file (storeFile, storePassword, keyAlias,
+    // keyPassword) is read from $MKBIBLE_KEYSTORE_PROPERTIES, else ~/.config/mkbible/keystore.properties.  Without it
+    // the release build is signed with the debug key (fine for trying it out, not for publishing).
+    val keyProps = Properties().apply {
+        val f = File(System.getenv("MKBIBLE_KEYSTORE_PROPERTIES") ?: (System.getProperty("user.home") + "/.config/mkbible/keystore.properties"))
+        if (f.exists()) f.inputStream().use { load(it) }
+    }
+    signingConfigs {
+        if (keyProps.getProperty("storeFile") != null) create("release") {
+            storeFile = File(keyProps.getProperty("storeFile"))
+            storePassword = keyProps.getProperty("storePassword")
+            keyAlias = keyProps.getProperty("keyAlias")
+            keyPassword = keyProps.getProperty("keyPassword")
+        }
+    }
     // Release build: R8 shrinks the code (Compose brings a lot), resources are shrunk, and one APK per CPU is made
-    // (plus a universal one for emulators).  For now the release is signed with the debug key so it can be installed
-    // by hand; a real release key is still to do (not for the Play Store as it is).
+    // (plus a universal one for emulators).
     buildTypes {
         release {
             isMinifyEnabled = true
             isShrinkResources = true
             proguardFiles(getDefaultProguardFile("proguard-android-optimize.txt"), "proguard-rules.pro")
-            signingConfig = signingConfigs.getByName("debug")
+            signingConfig = signingConfigs.findByName("release") ?: signingConfigs.getByName("debug")
         }
     }
     splits {

@@ -24,7 +24,9 @@ ASV, KJV with Strong's numbers, StrongsGreek and StrongsHebrew from CrossWire); 
 are public domain; CrossWire distributes the KJV module under the GPL.  `local.properties` must point `sdk.dir` at your Android SDK.
 
 For a smaller APK: `./build.sh release` makes one APK per CPU (arm64-v8a for phones, x86_64 for emulators) and a
-universal one, about 14.5 MB each instead of 24.7 MB (R8 code shrinking).  The release APKs are signed with the debug
-key for now, so they can be installed by hand but are not ready for a store.
+universal one, about 14.5 MB each instead of 24.7 MB (R8 code shrinking).  The release APKs are signed with your own key when
+`~/.config/mkbible/keystore.properties` (or `$MKBIBLE_KEYSTORE_PROPERTIES`) exists: it holds `storeFile`, `storePassword`,
+`keyAlias` and `keyPassword`. Keep that key outside the repository and back it up: apps signed with it can only be updated
+with the same key.  Without it the build falls back to the debug key.
 
 Install on an emulator or phone: `adb install -r app/build/outputs/apk/debug/app-debug.apk`.

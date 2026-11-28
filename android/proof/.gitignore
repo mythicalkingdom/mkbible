@@ -6,3 +6,6 @@ app/build/
 app/src/main/jniLibs/
 app/src/main/assets/
 .kotlin/
+keystore.properties
+*.jks
+*.keystore

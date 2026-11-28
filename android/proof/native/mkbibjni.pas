@@ -1,6 +1,6 @@
 library mkbibjni;
 { The Pascal Bible core as an Android native library (JNI), used by the Kotlin app.  Every function is on the
-  Kotlin object org.mkbible.proof.Native.  Results are plain strings (tab and line separated) so the Kotlin
+  Kotlin object com.mythicalkingdom.mkbible.Native.  Results are plain strings (tab and line separated) so the Kotlin
   side stays simple; chapter text comes as styled "events", see MkpToEvents in MKBibMkp.pas.
 
     open(conf): Long          handle of an opened module (0 = failed)      close(h)
@@ -205,16 +205,16 @@ begin
 end;
 
 exports
-  DictOpen name 'Java_org_mkbible_proof_Native_dictOpen',
-  DictClose name 'Java_org_mkbible_proof_Native_dictClose',
-  DictEntry name 'Java_org_mkbible_proof_Native_dictEntry',
-  Open name 'Java_org_mkbible_proof_Native_open',
-  Close name 'Java_org_mkbible_proof_Native_close',
-  Info name 'Java_org_mkbible_proof_Native_info',
-  Books name 'Java_org_mkbible_proof_Native_books',
-  Chapter name 'Java_org_mkbible_proof_Native_chapter',
-  Search name 'Java_org_mkbible_proof_Native_search',
-  Find name 'Java_org_mkbible_proof_Native_find',
-  VerseText name 'Java_org_mkbible_proof_Native_verseText';
+  DictOpen name 'Java_com_mythicalkingdom_mkbible_Native_dictOpen',
+  DictClose name 'Java_com_mythicalkingdom_mkbible_Native_dictClose',
+  DictEntry name 'Java_com_mythicalkingdom_mkbible_Native_dictEntry',
+  Open name 'Java_com_mythicalkingdom_mkbible_Native_open',
+  Close name 'Java_com_mythicalkingdom_mkbible_Native_close',
+  Info name 'Java_com_mythicalkingdom_mkbible_Native_info',
+  Books name 'Java_com_mythicalkingdom_mkbible_Native_books',
+  Chapter name 'Java_com_mythicalkingdom_mkbible_Native_chapter',
+  Search name 'Java_com_mythicalkingdom_mkbible_Native_search',
+  Find name 'Java_com_mythicalkingdom_mkbible_Native_find',
+  VerseText name 'Java_com_mythicalkingdom_mkbible_Native_verseText';
 
 end.

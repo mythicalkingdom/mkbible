@@ -1,4 +1,4 @@
-package org.mkbible.proof
+package com.mythicalkingdom.mkbible
 
 import android.content.ContentResolver
 import android.net.Uri

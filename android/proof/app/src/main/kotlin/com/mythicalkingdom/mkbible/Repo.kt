@@ -1,4 +1,4 @@
-package org.mkbible.proof
+package com.mythicalkingdom.mkbible
 
 import java.io.ByteArrayOutputStream
 import java.io.File

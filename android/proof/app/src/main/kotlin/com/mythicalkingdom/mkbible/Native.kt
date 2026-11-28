@@ -1,4 +1,4 @@
-package org.mkbible.proof
+package com.mythicalkingdom.mkbible
 
 /** The Pascal Bible core (libmkbibjni.so).  See android/proof/native/mkbibjni.pas for what each call returns. */
 object Native {

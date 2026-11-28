@@ -1,4 +1,4 @@
-package org.mkbible.proof
+package com.mythicalkingdom.mkbible
 
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.text.AnnotatedString
