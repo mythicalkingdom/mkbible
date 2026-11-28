@@ -5,7 +5,8 @@ import android.net.Uri
 import java.io.File
 import java.util.zip.ZipInputStream
 
-class ModInfo(val name: String, val description: String, val conf: String)
+/** [name] is the module id (the conf section); [label] is what the app shows: the Abbreviation from the conf when it has one. */
+class ModInfo(val name: String, val description: String, val conf: String, val label: String = name)
 
 /** The Sword module folder inside the app's own storage (filesDir/sword: mods.d + modules). */
 class ModuleStore(private val root: File) {
@@ -14,13 +15,14 @@ class ModuleStore(private val root: File) {
     /** Installed Bible modules, sorted by name. Commentaries, dictionaries and the like are not supported yet. */
     fun list(): List<ModInfo> =
         (confDir.listFiles { f -> f.name.endsWith(".conf") } ?: emptyArray()).mapNotNull { f ->
-            var name = ""; var desc = ""; var drv = ""
+            var name = ""; var desc = ""; var drv = ""; var abbr = ""
             for (line in f.readLines()) {
                 if (line.startsWith("[")) name = line.trim('[', ']', ' ', '\r')
                 else if (line.startsWith("Description=")) desc = line.substringAfter('=').trim()
+                else if (line.startsWith("Abbreviation=")) abbr = line.substringAfter('=').trim()
                 else if (line.startsWith("ModDrv=")) drv = line.substringAfter('=').trim()
             }
-            if (name.isNotEmpty() && drv.contains("Text")) ModInfo(name, desc.ifEmpty { name }, f.path) else null
+            if (name.isNotEmpty() && drv.contains("Text")) ModInfo(name, desc.ifEmpty { name }, f.path, abbr.ifEmpty { name }) else null
         }.sortedBy { it.name.lowercase() }
 
     /** Unpacks a Sword module zip (mods.d/x.conf and modules/...). Returns an error message or null. */

@@ -44,6 +44,7 @@ import androidx.compose.ui.text.SpanStyle
 import androidx.compose.ui.text.buildAnnotatedString
 import androidx.compose.ui.text.withStyle
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.mutableStateListOf
 import kotlinx.coroutines.launch
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
@@ -105,10 +106,15 @@ class MainActivity : ComponentActivity() {
 fun Reader(store: ModuleStore, prefs: SharedPreferences, look: Look, dark: Boolean, onLook: (Look) -> Unit) {
     val context = LocalContext.current
     var mods by remember { mutableStateOf(store.list()) }
+    val tabs = remember { mutableStateListOf<Tab>().also { it.addAll(loadTabs(prefs)) } }
+    var active by remember { mutableIntStateOf(prefs.getInt("tabActive", 0).coerceIn(0, tabs.size - 1)) }
+    val closedTabs = remember { ArrayList<Tab>() }
+    val bibles = remember { HashMap<String, Bible>() }     // opened modules, shared by all tabs
     var curBible by remember { mutableStateOf<Bible?>(null) }
+    var curModule by remember { mutableStateOf("") }
     var message by remember { mutableStateOf<String?>(null) }
-    var book by remember { mutableIntStateOf(prefs.getInt("book", 43)) }          // John
-    var chap by remember { mutableIntStateOf(prefs.getInt("chap", 3)) }
+    var book by remember { mutableIntStateOf(tabs[active].book) }
+    var chap by remember { mutableIntStateOf(tabs[active].chap) }
     var modPicker by remember { mutableStateOf(false) }
     var showFoot by remember { mutableStateOf(prefs.getBoolean("foot", true)) }
     var showXref by remember { mutableStateOf(prefs.getBoolean("xref", true)) }
@@ -120,21 +126,76 @@ fun Reader(store: ModuleStore, prefs: SharedPreferences, look: Look, dark: Boole
     var strongOn by remember { mutableStateOf(prefs.getBoolean("strong", true)) }
     var openStrong by remember { mutableStateOf<Pair<String, String>?>(null) }
     var targetVerse by remember { mutableIntStateOf(0) }
+    var pendingScroll by remember { mutableIntStateOf(-1) }          // scroll position to restore after a tab switch
     var layout by remember { mutableStateOf<androidx.compose.ui.text.TextLayoutResult?>(null) }
+    var picking by remember { mutableStateOf(false) }
+    var searching by remember { mutableStateOf(false) }
+    val scroll = rememberScrollState()
+    val tabBarState = androidx.compose.foundation.lazy.rememberLazyListState()
+
+    fun bibleFor(id: String): Bible? {
+        bibles[id]?.let { return it }
+        val m = mods.firstOrNull { it.name == id } ?: return null
+        val h = Native.open(m.conf)
+        if (h == 0L) return null
+        return Bible(h, m.label).also { bibles[id] = it }
+    }
+    // the module of a tab if it is still installed, otherwise the first one
+    fun resolve(id: String): String? = if (mods.any { it.name == id }) id else mods.firstOrNull()?.name
 
     fun openModule(m: ModInfo) {
-        val h = Native.open(m.conf)
-        if (h == 0L) { message = "Cannot open ${m.name}"; return }
-        curBible?.let { Native.close(it.handle) }
-        val nb = Bible(h)
+        val nb = bibleFor(m.name)
+        if (nb == null) { message = "Cannot open ${m.label}"; return }
         if (book > nb.books.size) { book = 1; chap = 1 }
         curBible = nb
-        prefs.edit().putString("module", m.name).apply()
+        curModule = m.name
     }
     if (curBible == null) {
-        val want = prefs.getString("module", "engwebu2025eb")
-        (mods.firstOrNull { it.name == want } ?: mods.firstOrNull())?.let { openModule(it) }
+        val id = resolve(tabs[active].module)
+        val nb = id?.let { bibleFor(it) }
+        if (nb != null && id != null) { curBible = nb; curModule = id; if (book > nb.books.size) { book = 1; chap = 1 } }
     }
+
+    fun saveActive() {
+        if (active in tabs.indices && curModule.isNotEmpty()) tabs[active] = Tab(curModule, book, chap, scroll.value)
+    }
+    fun loadTab(t: Tab, verse: Int = 0) {
+        val id = resolve(t.module) ?: return
+        val nb = bibleFor(id) ?: return
+        curBible = nb; curModule = id
+        book = t.book.coerceIn(1, nb.books.size); chap = t.chap
+        targetVerse = verse
+        pendingScroll = if (verse > 0) -1 else t.scroll
+    }
+    fun activate(i: Int) { saveActive(); active = i; loadTab(tabs[i]) }
+    fun newTab(bk: Int, ch: Int, v: Int = 0, module: String = curModule) {
+        saveActive()
+        tabs.add(Tab(module, bk, ch, 0)); active = tabs.size - 1
+        loadTab(tabs[active], v)
+    }
+    fun closeTab(i: Int) {
+        if (tabs.size <= 1) return
+        if (i == active) saveActive()
+        closedTabs.add(tabs[i]); if (closedTabs.size > 10) closedTabs.removeAt(0)
+        tabs.removeAt(i)
+        if (i < active) active--
+        else if (i == active) { active = minOf(i, tabs.size - 1); loadTab(tabs[active]) }
+    }
+    fun reopenTab() {
+        if (closedTabs.isEmpty()) return
+        saveActive()
+        tabs.add(closedTabs.removeAt(closedTabs.size - 1)); active = tabs.size - 1
+        loadTab(tabs[active])
+    }
+    // the tab set is remembered between runs (the scroll position of a tab only survives a switch, not a restart)
+    LaunchedEffect(tabs.toList(), active, book, chap, curModule) {
+        val snapshot = tabs.toMutableList()
+        if (active in snapshot.indices && curModule.isNotEmpty()) snapshot[active] = Tab(curModule, book, chap, 0)
+        saveTabs(prefs, snapshot, active)
+        prefs.edit().putString("module", curModule).apply()
+    }
+    LaunchedEffect(active, tabs.size) { if (tabs.size > 1) tabBarState.animateScrollToItem(active.coerceIn(0, tabs.size - 1)) }
+
     val importer = rememberLauncherForActivityResult(ActivityResultContracts.OpenDocument()) { uri ->
         if (uri != null) {
             val err = store.importZip(context.contentResolver, uri)
@@ -153,10 +214,6 @@ fun Reader(store: ModuleStore, prefs: SharedPreferences, look: Look, dark: Boole
         return
     }
     val bible = bb
-    LaunchedEffect(book, chap) { prefs.edit().putInt("book", book).putInt("chap", chap).apply() }
-    var picking by remember { mutableStateOf(false) }
-    var searching by remember { mutableStateOf(false) }
-    val scroll = rememberScrollState()
     val b = bible.books[book - 1]
     val view = remember(bible, book, chap, showFoot, showXref, look, dark, strongOn) { renderChapter(bible.chapter(book, chap), bible, showFoot, showXref, look, dark, strongOn) }
     LaunchedEffect(book, chap) { scroll.scrollTo(0) }
@@ -173,6 +230,20 @@ fun Reader(store: ModuleStore, prefs: SharedPreferences, look: Look, dark: Boole
             targetVerse = 0
         }
     }
+    // coming back to a tab: restore where it was scrolled to
+    LaunchedEffect(view, layout, pendingScroll) {
+        val l = layout
+        if (pendingScroll >= 0 && l != null && l.layoutInput.text.text == view.text.text) {
+            scroll.scrollTo(pendingScroll)
+            pendingScroll = -1
+        }
+    }
+    fun tabTitle(i: Int): String {
+        val t = if (i == active) Tab(curModule, book, chap) else tabs[i]
+        val label = mods.firstOrNull { it.name == t.module }?.label ?: t.module
+        val ab = bibleFor(t.module)?.books?.getOrNull(t.book - 1)?.abbrev ?: "?"
+        return "$label $ab ${t.chap}"
+    }
 
     fun go(bk: Int, ch: Int, v: Int = 0) { book = bk; chap = ch; targetVerse = v }
     fun next() {
@@ -186,6 +257,7 @@ fun Reader(store: ModuleStore, prefs: SharedPreferences, look: Look, dark: Boole
 
     Scaffold(
         topBar = {
+          Column {
             TopAppBar(
                 title = { Text("${b.name} $chap", Modifier.clickable { picking = true }) },
                 actions = {
@@ -204,11 +276,19 @@ fun Reader(store: ModuleStore, prefs: SharedPreferences, look: Look, dark: Boole
                                 onClick = { strongOn = !strongOn; prefs.edit().putBoolean("strong", strongOn).apply() })
                             HorizontalDivider()
                             androidx.compose.material3.DropdownMenuItem(
+                                text = { Text("New tab") }, onClick = { viewMenu = false; newTab(book, chap) })
+                            if (closedTabs.isNotEmpty()) androidx.compose.material3.DropdownMenuItem(
+                                text = { Text("Reopen closed tab") }, onClick = { viewMenu = false; reopenTab() })
+                            HorizontalDivider()
+                            androidx.compose.material3.DropdownMenuItem(
                                 text = { Text("Settings…") }, onClick = { viewMenu = false; settings = true })
                         }
                     }
                 },
             )
+            if (tabs.size > 1) TabBar(tabs.indices.map { tabTitle(it) }, active, tabBarState,
+                { activate(it) }, { closeTab(it) }, { newTab(book, chap) })
+          }
         },
         bottomBar = {
             Row(Modifier.fillMaxWidth().padding(8.dp), horizontalArrangement = Arrangement.SpaceBetween) {
@@ -244,7 +324,7 @@ fun Reader(store: ModuleStore, prefs: SharedPreferences, look: Look, dark: Boole
     if (settings) SettingsDialog(look, dark, onLook) { settings = false }
     if (downloading) DownloadScreen(store, { downloading = false }) { mods = store.list(); lexicons.reset() }
     openNote?.let { n ->
-        NoteDialog(bible, n, { openNote = null }) { bk, ch, v -> openNote = null; go(bk, ch, v) }
+        NoteDialog(bible, n, { openNote = null }) { bk, ch, v, nt -> openNote = null; if (nt) newTab(bk, ch, v) else go(bk, ch, v) }
     }
     if (modPicker) ModulePicker(mods, bible.name, { modPicker = false }, { modPicker = false; downloading = true },
         { modPicker = false; importer.launch(arrayOf("application/zip", "application/octet-stream")) }) {
@@ -356,8 +436,8 @@ fun ModulePicker(mods: List<ModInfo>, current: String, onClose: () -> Unit, onDo
                 LazyColumn(Modifier.weight(1f)) {
                     items(mods) { m ->
                         Column(Modifier.fillMaxWidth().clickable { onPick(m) }.padding(vertical = 10.dp)) {
-                            Text(m.name + if (m.name == current) "  (open)" else "", fontSize = 18.sp,
-                                color = if (m.name == current) MaterialTheme.colorScheme.primary else Color.Unspecified)
+                            Text(m.label + if (m.label == current) "  (open)" else "", fontSize = 18.sp,
+                                color = if (m.label == current) MaterialTheme.colorScheme.primary else Color.Unspecified)
                             Text(m.description, fontSize = 14.sp, maxLines = 2)
                         }
                         HorizontalDivider()
@@ -372,7 +452,7 @@ fun ModulePicker(mods: List<ModInfo>, current: String, onClose: () -> Unit, onDo
 }
 
 @Composable
-fun NoteDialog(bible: Bible, note: NoteItem, onClose: () -> Unit, onGo: (Int, Int, Int) -> Unit) {
+fun NoteDialog(bible: Bible, note: NoteItem, onClose: () -> Unit, onGo: (Int, Int, Int, Boolean) -> Unit) {
     androidx.compose.material3.AlertDialog(
         onDismissRequest = onClose,
         confirmButton = { TextButton(onClose) { Text("Close") } },
@@ -381,8 +461,11 @@ fun NoteDialog(bible: Bible, note: NoteItem, onClose: () -> Unit, onGo: (Int, In
             Column(Modifier.verticalScroll(rememberScrollState())) {
                 if (!note.crossRef && note.text.isNotEmpty()) Text(note.text, fontSize = 16.sp)
                 for (r in note.refs) {
-                    Column(Modifier.fillMaxWidth().clickable(enabled = r.book > 0) { onGo(r.book, r.chapter, r.verse) }.padding(vertical = 8.dp)) {
-                        Text(r.label, fontSize = 15.sp, color = MaterialTheme.colorScheme.primary)
+                    Column(Modifier.fillMaxWidth().clickable(enabled = r.book > 0) { onGo(r.book, r.chapter, r.verse, false) }.padding(vertical = 8.dp)) {
+                        Row(verticalAlignment = Alignment.CenterVertically) {
+                            Text(r.label, Modifier.weight(1f), fontSize = 15.sp, color = MaterialTheme.colorScheme.primary)
+                            if (r.book > 0) TextButton({ onGo(r.book, r.chapter, r.verse, true) }) { Text("New tab", fontSize = 13.sp) }
+                        }
                         if (r.book > 0) Text(bible.verseText(r.book, r.chapter, r.verse), fontSize = 14.sp, maxLines = 4)
                     }
                     HorizontalDivider()

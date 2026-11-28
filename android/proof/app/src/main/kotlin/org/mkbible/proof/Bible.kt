@@ -23,14 +23,14 @@ class ChapterView(val text: AnnotatedString, val notes: List<NoteItem>, val vers
 class Hit(val book: Int, val chapter: Int, val verse: Int, val text: String)
 
 /** One opened module. Calls into the native library are serialized, the module object is not thread safe. */
-class Bible(val handle: Long) {
+class Bible(val handle: Long, label: String = "") {
     val books: List<Book>
     val name: String
     val description: String
 
     init {
         val i = Native.info(handle).split('\t')
-        name = i.getOrElse(0) { "" }
+        name = label.ifEmpty { i.getOrElse(0) { "" } }
         description = i.getOrElse(1) { "" }
         books = Native.books(handle).lines().filter { it.isNotBlank() }.mapIndexed { n, l ->
             val f = l.split('\t')
