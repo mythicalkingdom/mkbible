@@ -53,4 +53,26 @@ class ModuleStore(private val root: File) {
         }
         return if (files == 0) "No Sword module found in that zip (it needs mods.d/ and modules/)" else null
     }
+
+    /** The .conf of an installed dictionary with Feature=GreekDef or HebrewDef (StrongsGreek / StrongsHebrew first). */
+    fun lexiconConf(feature: String): String? {
+        val confs = (confDir.listFiles { f -> f.name.endsWith(".conf") } ?: emptyArray())
+            .filter { f -> f.readText().replace(" ", "").contains("Feature=$feature", true) }
+        val wanted = if (feature == "GreekDef") "strongsgreek" else "strongshebrew"
+        return (confs.firstOrNull { it.name.lowercase() == "$wanted.conf" } ?: confs.firstOrNull())?.path
+    }
+}
+
+/** Strong's dictionaries, opened when first needed. A key like "G26" goes to the Greek one, "H7225" to the Hebrew one. */
+class Lexicons(private val store: ModuleStore) {
+    private val handles = HashMap<String, Long>()
+
+    @Synchronized fun reset() { handles.values.forEach { if (it != 0L) Native.dictClose(it) }; handles.clear() }
+
+    /** Entry text, or null when no dictionary is installed for that language. Empty string: not in the dictionary. */
+    @Synchronized fun entry(key: String): String? {
+        val feature = if (key.firstOrNull()?.uppercaseChar() == 'G') "GreekDef" else "HebrewDef"
+        val h = handles.getOrPut(feature) { store.lexiconConf(feature)?.let { Native.dictOpen(it) } ?: 0L }
+        return if (h == 0L) null else Native.dictEntry(h, key)
+    }
 }

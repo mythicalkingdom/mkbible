@@ -67,7 +67,7 @@ class Bible(val handle: Long) {
 
 
 /** Turns the events of one chapter (see MkpToEvents) into styled text, with a tappable marker for each note. */
-fun renderChapter(src: String, bible: Bible, showFoot: Boolean, showXref: Boolean, look: Look, dark: Boolean): ChapterView {
+fun renderChapter(src: String, bible: Bible, showFoot: Boolean, showXref: Boolean, look: Look, dark: Boolean, strongOn: Boolean = true): ChapterView {
     val base = look.fontSize
     val jesusRed = if (dark) Color(0xFFFF8A80) else Color(0xFFB3261E)
     val numColor = if (dark) Color(0xFFC8B88A) else Color(0xFF6B5B3E)
@@ -79,6 +79,7 @@ fun renderChapter(src: String, bible: Bible, showFoot: Boolean, showXref: Boolea
         var italic = 0; var bold = 0; var jesus = 0; var head = 0
         var inNote = false; var noteX = false; var nb = StringBuilder(); var nrefs = ArrayList<RefLink>()
         var refOsis: String? = null; var refLabel = StringBuilder()
+        var strong = 0   // number of annotations pushed for the current word (0 or 1)
         var verse = 0
         var atStart = true
         var needGap = false
@@ -145,6 +146,8 @@ fun renderChapter(src: String, bible: Bible, showFoot: Boolean, showXref: Boolea
                 }
                 "P" -> if (!atStart) needGap = true
                 "L" -> if (!atStart) append("\n")
+                "W+" -> if (arg.isNotBlank() && strongOn) { pushStringAnnotation("strong", arg); strong = 1 }
+                "W-" -> if (strong > 0) { pop(); strong = 0 }
                 "I+" -> italic++
                 "I-" -> if (italic > 0) italic--
                 "B+" -> bold++

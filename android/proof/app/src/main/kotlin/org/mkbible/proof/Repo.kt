@@ -10,7 +10,7 @@ import java.util.zip.GZIPInputStream
 
 class Repo(val name: String, val url: String)
 
-class RepoItem(val id: String, val description: String, val lang: String, val version: String) {
+class RepoItem(val id: String, val description: String, val lang: String, val version: String, val lexicon: Boolean = false) {
     val language: String get() = langName(lang)
 }
 
@@ -88,7 +88,7 @@ object RepoClient {
 
     private fun parseConf(text: String): RepoItem? {
         var id = ""; var desc = ""; var lang = ""; var ver = ""; var drv = ""; var cat = ""
-        var locked = false
+        var locked = false; var lex = false
         for (line in text.lineSequence()) {
             val l = line.trimEnd('\r')
             when {
@@ -98,10 +98,13 @@ object RepoClient {
                 l.startsWith("Version=") -> ver = l.substringAfter('=').trim()
                 l.startsWith("ModDrv=") -> drv = l.substringAfter('=').trim()
                 l.startsWith("Category=") -> cat = l.substringAfter('=').trim()
+                l.startsWith("Feature=") -> { val f = l.substringAfter('=').trim(); if (f == "GreekDef" || f == "HebrewDef") lex = true }
                 l.startsWith("CipherKey=") -> locked = l.substringAfter('=').isBlank()
             }
         }
-        if (id.isEmpty() || locked || !drv.contains("Text")) return null
+        if (id.isEmpty() || locked) return null
+        if (lex) return RepoItem(id, desc.ifEmpty { id }, lang, ver, lexicon = true)
+        if (!drv.contains("Text")) return null
         if (cat.isNotEmpty() && !cat.contains("Bible", true) && !cat.contains("Biblical", true)) return null
         return RepoItem(id, desc.ifEmpty { id }, lang, ver)
     }

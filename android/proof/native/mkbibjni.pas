@@ -10,10 +10,11 @@ library mkbibjni;
                               heading that comes before verse 1, then events as in MkpToEvents
     search(h, text, scope, max)   per hit: book TAB chapter TAB verse TAB plain text  (scope 0 all, 1 OT, 2 NT)
     find(h, text): String     book TAB chapter TAB verse of a reference like "1 Cor 13:4", "" if none
-    verseText(h, b, c, v)     plain text of one verse }
+    verseText(h, b, c, v)     plain text of one verse
+    dictOpen(conf) / dictClose(h) / dictEntry(h, "G26")   a dictionary (Strong's lexicons): entry as plain text }
 {$mode objfpc}{$H+}
 uses
-  SysUtils, jni, MKBibMod, MKBibAbs, MKBibAny, MKBibMkp;
+  SysUtils, jni, MKBibMod, MKBibAbs, MKBibAny, MKBibMkp, MKBibDic, MKDicAny;
 
 function JStr(Env: PJNIEnv; S: jstring): String;
 var P: PChar;
@@ -165,7 +166,48 @@ begin
   else Result := Ret(Env, '');
 end;
 
+function DictOpen(Env: PJNIEnv; Cls: jclass; Conf: jstring): jlong; cdecl;
+var D: AbsDictPtr;
+begin
+  Result := 0;
+  try
+    D := NewDictObj(JStr(Env, Conf));
+    if D = nil then Exit;
+    if D^.OpenBible <> bibOk then begin FreeDictObj(D); Exit; end;
+    Result := jlong(PtrUInt(D));
+  except
+  end;
+end;
+
+procedure DictClose(Env: PJNIEnv; Cls: jclass; H: jlong); cdecl;
+var D: AbsDictPtr;
+begin
+  if H = 0 then Exit;
+  D := AbsDictPtr(PtrUInt(H));
+  try
+    D^.CloseBible;
+    FreeDictObj(D);
+  except
+  end;
+end;
+
+{ the entry for a key such as "G26" or "H7225" as plain text, "" if there is none }
+function DictEntry(Env: PJNIEnv; Cls: jclass; H: jlong; Key: jstring): jstring; cdecl;
+var D: AbsDictPtr; Idx: LongInt;
+begin
+  Result := Ret(Env, '');
+  try
+    D := AbsDictPtr(PtrUInt(H));
+    Idx := D^.FindKey(JStr(Env, Key));
+    if Idx > 0 then Result := Ret(Env, Trim(D^.GetEntryTextAt(Idx)));
+  except
+  end;
+end;
+
 exports
+  DictOpen name 'Java_org_mkbible_proof_Native_dictOpen',
+  DictClose name 'Java_org_mkbible_proof_Native_dictClose',
+  DictEntry name 'Java_org_mkbible_proof_Native_dictEntry',
   Open name 'Java_org_mkbible_proof_Native_open',
   Close name 'Java_org_mkbible_proof_Native_close',
   Info name 'Java_org_mkbible_proof_Native_info',

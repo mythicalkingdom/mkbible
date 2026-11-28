@@ -116,6 +116,9 @@ fun Reader(store: ModuleStore, prefs: SharedPreferences, look: Look, dark: Boole
     var openNote by remember { mutableStateOf<NoteItem?>(null) }
     var downloading by remember { mutableStateOf(false) }
     var settings by remember { mutableStateOf(false) }
+    val lexicons = remember { Lexicons(store) }
+    var strongOn by remember { mutableStateOf(prefs.getBoolean("strong", true)) }
+    var openStrong by remember { mutableStateOf<Pair<String, String>?>(null) }
     var targetVerse by remember { mutableIntStateOf(0) }
     var layout by remember { mutableStateOf<androidx.compose.ui.text.TextLayoutResult?>(null) }
 
@@ -155,7 +158,7 @@ fun Reader(store: ModuleStore, prefs: SharedPreferences, look: Look, dark: Boole
     var searching by remember { mutableStateOf(false) }
     val scroll = rememberScrollState()
     val b = bible.books[book - 1]
-    val view = remember(bible, book, chap, showFoot, showXref, look, dark) { renderChapter(bible.chapter(book, chap), bible, showFoot, showXref, look, dark) }
+    val view = remember(bible, book, chap, showFoot, showXref, look, dark, strongOn) { renderChapter(bible.chapter(book, chap), bible, showFoot, showXref, look, dark, strongOn) }
     LaunchedEffect(book, chap) { scroll.scrollTo(0) }
     // a jump to a verse: once this chapter's text has been laid out, scroll the verse to the top
     LaunchedEffect(view, layout, targetVerse) {
@@ -196,6 +199,9 @@ fun Reader(store: ModuleStore, prefs: SharedPreferences, look: Look, dark: Boole
                             androidx.compose.material3.DropdownMenuItem(
                                 text = { Text((if (showXref) "\u2713 " else "    ") + "Cross references") },
                                 onClick = { showXref = !showXref; prefs.edit().putBoolean("xref", showXref).apply() })
+                            androidx.compose.material3.DropdownMenuItem(
+                                text = { Text((if (strongOn) "\u2713 " else "    ") + "Strong's (tap a word)") },
+                                onClick = { strongOn = !strongOn; prefs.edit().putBoolean("strong", strongOn).apply() })
                             HorizontalDivider()
                             androidx.compose.material3.DropdownMenuItem(
                                 text = { Text("Settings…") }, onClick = { viewMenu = false; settings = true })
@@ -226,12 +232,17 @@ fun Reader(store: ModuleStore, prefs: SharedPreferences, look: Look, dark: Boole
                             view.text.getStringAnnotations("note", o.coerceAtLeast(0), (o + 1).coerceAtMost(view.text.length)).firstOrNull()
                         }
                         if (hit != null) openNote = view.notes[hit.item.toInt()]
+                        else {
+                            val w = view.text.getStringAnnotations("strong", off, (off + 1).coerceAtMost(view.text.length)).firstOrNull()
+                            if (w != null) openStrong = w.item to view.text.text.substring(w.start, w.end).trim()
+                        }
                     }
                 })
         }
     }
+    openStrong?.let { (nums, word) -> StrongsDialog(lexicons, store, nums, word) { openStrong = null } }
     if (settings) SettingsDialog(look, dark, onLook) { settings = false }
-    if (downloading) DownloadScreen(store, { downloading = false }) { mods = store.list() }
+    if (downloading) DownloadScreen(store, { downloading = false }) { mods = store.list(); lexicons.reset() }
     openNote?.let { n ->
         NoteDialog(bible, n, { openNote = null }) { bk, ch, v -> openNote = null; go(bk, ch, v) }
     }
@@ -457,7 +468,7 @@ fun DownloadScreen(store: ModuleStore, onClose: () -> Unit, onInstalled: () -> U
                             Column(Modifier.fillMaxWidth().clickable(enabled = busy == null && !inst) { install(m) }.padding(vertical = 8.dp)) {
                                 Text(m.id + (if (inst) "  (installed)" else ""), fontSize = 17.sp,
                                     color = if (inst) MaterialTheme.colorScheme.primary else Color.Unspecified)
-                                Text(m.description + " · " + m.language, fontSize = 13.sp, maxLines = 2)
+                                Text(m.description + " · " + (if (m.lexicon) "Strong's / lexicon" else m.language), fontSize = 13.sp, maxLines = 2)
                             }
                             HorizontalDivider()
                         }
@@ -519,4 +530,54 @@ fun SettingsDialog(look: Look, dark: Boolean, onLook: (Look) -> Unit, onClose: (
             }
         }
     }
+}
+
+@Composable
+fun StrongsDialog(lex: Lexicons, store: ModuleStore, numbers: String, word: String, onClose: () -> Unit) {
+    var tick by remember { mutableIntStateOf(0) }
+    var busy by remember { mutableStateOf<String?>(null) }
+    val scope = androidx.compose.runtime.rememberCoroutineScope()
+    val keys = numbers.split(' ').filter { it.isNotBlank() }
+    val entries = remember(numbers, tick) { keys.map { it to lex.entry(it) } }
+    val missing = entries.any { it.second == null }
+
+    fun fetch() {
+        scope.launch {
+            try {
+                for (id in listOf("StrongsGreek", "StrongsHebrew")) {
+                    if (store.lexiconConf(if (id.endsWith("Greek")) "GreekDef" else "HebrewDef") != null) continue
+                    busy = "Downloading $id…"
+                    val err = kotlinx.coroutines.withContext(kotlinx.coroutines.Dispatchers.IO) {
+                        store.importStream(RepoClient.download(DEFAULT_REPOS[0], id) { _, _ -> }.inputStream())
+                    }
+                    if (err != null) { busy = err; return@launch }
+                }
+                lex.reset(); tick++; busy = null
+            } catch (e: Exception) { busy = e.message ?: "Download failed" }
+        }
+    }
+
+    androidx.compose.material3.AlertDialog(
+        onDismissRequest = onClose,
+        confirmButton = { TextButton(onClose) { Text("Close") } },
+        title = { Text("$numbers   $word", fontSize = 18.sp) },
+        text = {
+            Column(Modifier.verticalScroll(rememberScrollState())) {
+                for ((k, e) in entries) {
+                    if (keys.size > 1) Text(k, color = MaterialTheme.colorScheme.primary, fontSize = 15.sp)
+                    when {
+                        e == null -> Text("No Strong's ${if (k.firstOrNull()?.uppercaseChar() == 'G') "Greek" else "Hebrew"} dictionary is installed.")
+                        e.isEmpty() -> Text("No entry for $k in this dictionary.")
+                        else -> Text(e, fontSize = 15.sp)
+                    }
+                    HorizontalDivider(Modifier.padding(vertical = 8.dp))
+                }
+                if (missing) {
+                    Button({ fetch() }, enabled = busy == null || busy!!.startsWith("Cannot") || busy!!.contains("fail", true),
+                        modifier = Modifier.fillMaxWidth()) { Text("Download Strong's dictionaries") }
+                }
+                busy?.let { Text(it, Modifier.padding(top = 8.dp)) }
+            }
+        },
+    )
 }

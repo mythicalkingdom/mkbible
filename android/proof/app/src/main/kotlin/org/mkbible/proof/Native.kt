@@ -10,5 +10,8 @@ object Native {
     external fun chapter(h: Long, book: Int, chap: Int): String
     external fun search(h: Long, text: String, scope: Int, max: Int): String
     external fun find(h: Long, ref: String): String
+    external fun dictOpen(conf: String): Long
+    external fun dictClose(h: Long)
+    external fun dictEntry(h: Long, key: String): String
     external fun verseText(h: Long, book: Int, chap: Int, verse: Int): String
 }
