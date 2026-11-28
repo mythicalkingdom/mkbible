@@ -1,6 +1,9 @@
 package org.mkbible.proof
 
+import android.content.SharedPreferences
 import android.os.Bundle
+import androidx.activity.compose.rememberLauncherForActivityResult
+import androidx.activity.result.contract.ActivityResultContracts
 import androidx.activity.ComponentActivity
 import androidx.activity.compose.setContent
 import androidx.compose.foundation.clickable
@@ -42,6 +45,8 @@ import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.focus.focusRequester
+import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.text.font.FontFamily
 import androidx.compose.ui.text.input.ImeAction
 import androidx.compose.ui.unit.dp
@@ -53,10 +58,9 @@ class MainActivity : ComponentActivity() {
         super.onCreate(savedInstanceState)
         val root = File(filesDir, "sword")
         copyAssets("sword", root)
-        val bible = Bible(Native.open(File(root, "mods.d/engwebu2024eb.conf").path).also {
-            check(it != 0L) { "cannot open the module" }
-        })
-        setContent { MaterialTheme { Surface(Modifier.fillMaxSize()) { Reader(bible) } } }
+        val store = ModuleStore(root)
+        val prefs = getSharedPreferences("mkbible", MODE_PRIVATE)
+        setContent { MaterialTheme { Surface(Modifier.fillMaxSize()) { Reader(store, prefs) } } }
     }
 
     private fun copyAssets(path: String, dest: File) {
@@ -75,14 +79,52 @@ class MainActivity : ComponentActivity() {
 
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
-fun Reader(bible: Bible) {
-    var book by remember { mutableIntStateOf(43) }          // John
-    var chap by remember { mutableIntStateOf(3) }
+fun Reader(store: ModuleStore, prefs: SharedPreferences) {
+    val context = LocalContext.current
+    var mods by remember { mutableStateOf(store.list()) }
+    var curBible by remember { mutableStateOf<Bible?>(null) }
+    var message by remember { mutableStateOf<String?>(null) }
+    var book by remember { mutableIntStateOf(prefs.getInt("book", 43)) }          // John
+    var chap by remember { mutableIntStateOf(prefs.getInt("chap", 3)) }
+    var modPicker by remember { mutableStateOf(false) }
+
+    fun openModule(m: ModInfo) {
+        val h = Native.open(m.conf)
+        if (h == 0L) { message = "Cannot open ${m.name}"; return }
+        curBible?.let { Native.close(it.handle) }
+        val nb = Bible(h)
+        if (book > nb.books.size) { book = 1; chap = 1 }
+        curBible = nb
+        prefs.edit().putString("module", m.name).apply()
+    }
+    if (curBible == null) {
+        val want = prefs.getString("module", null)
+        (mods.firstOrNull { it.name == want } ?: mods.firstOrNull())?.let { openModule(it) }
+    }
+    val importer = rememberLauncherForActivityResult(ActivityResultContracts.OpenDocument()) { uri ->
+        if (uri != null) {
+            val err = store.importZip(context.contentResolver, uri)
+            mods = store.list()
+            message = err ?: "Module imported"
+        }
+    }
+    val bb = curBible
+    if (bb == null) {
+        Column(Modifier.fillMaxSize().padding(24.dp), verticalArrangement = Arrangement.Center) {
+            Text("No Bible module yet.", fontSize = 20.sp)
+            Button({ importer.launch(arrayOf("application/zip", "application/octet-stream")) },
+                Modifier.padding(top = 16.dp)) { Text("Import a Sword module (.zip)") }
+            message?.let { Text(it, Modifier.padding(top = 12.dp)) }
+        }
+        return
+    }
+    val bible = bb
+    LaunchedEffect(book, chap) { prefs.edit().putInt("book", book).putInt("chap", chap).apply() }
     var picking by remember { mutableStateOf(false) }
     var searching by remember { mutableStateOf(false) }
     val scroll = rememberScrollState()
     val b = bible.books[book - 1]
-    val text = remember(book, chap) { renderChapter(bible.chapter(book, chap)) }
+    val text = remember(bible, book, chap) { renderChapter(bible.chapter(book, chap)) }
     LaunchedEffect(book, chap) { scroll.scrollTo(0) }
 
     fun go(bk: Int, ch: Int) { book = bk; chap = ch }
@@ -107,8 +149,9 @@ fun Reader(bible: Bible) {
         bottomBar = {
             Row(Modifier.fillMaxWidth().padding(8.dp), horizontalArrangement = Arrangement.SpaceBetween) {
                 OutlinedButton({ prev() }) { Text("< Previous", maxLines = 1, softWrap = false) }
-                Text(bible.name.take(12), Modifier.weight(1f).align(Alignment.CenterVertically), maxLines = 1,
-                    textAlign = androidx.compose.ui.text.style.TextAlign.Center)
+                TextButton({ modPicker = true }, Modifier.weight(1f)) {
+                    Text(bible.name.take(12), maxLines = 1)
+                }
                 OutlinedButton({ next() }) { Text("Next >", maxLines = 1, softWrap = false) }
             }
         },
@@ -116,6 +159,14 @@ fun Reader(bible: Bible) {
         Column(Modifier.padding(pad).fillMaxSize().verticalScroll(scroll).padding(horizontal = 18.dp, vertical = 8.dp)) {
             Text(text, fontFamily = FontFamily.Serif, lineHeight = 28.sp)
         }
+    }
+    if (modPicker) ModulePicker(mods, bible.name, { modPicker = false },
+        { modPicker = false; importer.launch(arrayOf("application/zip", "application/octet-stream")) }) {
+        modPicker = false; openModule(it)
+    }
+    message?.let { m ->
+        androidx.compose.material3.AlertDialog(onDismissRequest = { message = null },
+            confirmButton = { TextButton({ message = null }) { Text("OK") } }, text = { Text(m) })
     }
     if (picking) Picker(bible, { picking = false }) { bk, ch -> go(bk, ch); picking = false }
     if (searching) SearchScreen(bible, { searching = false }) { bk, ch -> go(bk, ch); searching = false }
@@ -203,6 +254,29 @@ fun SearchScreen(bible: Bible, onClose: () -> Unit, onPick: (Int, Int) -> Unit) 
                         }
                     }
                 } else Box(Modifier.weight(1f))
+                TextButton(onClose) { Text("Close") }
+            }
+        }
+    }
+}
+
+@Composable
+fun ModulePicker(mods: List<ModInfo>, current: String, onClose: () -> Unit, onImport: () -> Unit, onPick: (ModInfo) -> Unit) {
+    androidx.compose.ui.window.Dialog(onClose, androidx.compose.ui.window.DialogProperties(usePlatformDefaultWidth = false)) {
+        Surface(Modifier.fillMaxSize()) {
+            Column(Modifier.padding(16.dp)) {
+                Text("Bible modules", fontSize = 20.sp, modifier = Modifier.padding(bottom = 8.dp))
+                LazyColumn(Modifier.weight(1f)) {
+                    items(mods) { m ->
+                        Column(Modifier.fillMaxWidth().clickable { onPick(m) }.padding(vertical = 10.dp)) {
+                            Text(m.name + if (m.name == current) "  (open)" else "", fontSize = 18.sp,
+                                color = if (m.name == current) MaterialTheme.colorScheme.primary else Color.Unspecified)
+                            Text(m.description, fontSize = 14.sp, maxLines = 2)
+                        }
+                        HorizontalDivider()
+                    }
+                }
+                Button(onImport, Modifier.fillMaxWidth().padding(top = 8.dp)) { Text("Import a Sword module (.zip)") }
                 TextButton(onClose) { Text("Close") }
             }
         }
