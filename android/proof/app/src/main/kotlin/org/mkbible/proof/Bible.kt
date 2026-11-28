@@ -18,7 +18,7 @@ class RefLink(val label: String, val book: Int, val chapter: Int, val verse: Int
 /** A footnote or cross reference note of a chapter. */
 class NoteItem(val verse: Int, val crossRef: Boolean, val text: String, val refs: List<RefLink>)
 
-class ChapterView(val text: AnnotatedString, val notes: List<NoteItem>)
+class ChapterView(val text: AnnotatedString, val notes: List<NoteItem>, val verseOffsets: Map<Int, Int>)
 
 class Hit(val book: Int, val chapter: Int, val verse: Int, val text: String)
 
@@ -65,11 +65,16 @@ class Bible(val handle: Long) {
     fun bookName(n: Int) = books.getOrNull(n - 1)?.name ?: "?"
 }
 
-private val JesusRed = Color(0xFFB3261E)
 
 /** Turns the events of one chapter (see MkpToEvents) into styled text, with a tappable marker for each note. */
-fun renderChapter(src: String, bible: Bible, showFoot: Boolean, showXref: Boolean): ChapterView {
+fun renderChapter(src: String, bible: Bible, showFoot: Boolean, showXref: Boolean, look: Look, dark: Boolean): ChapterView {
+    val base = look.fontSize
+    val jesusRed = if (dark) Color(0xFFFF8A80) else Color(0xFFB3261E)
+    val numColor = if (dark) Color(0xFFC8B88A) else Color(0xFF6B5B3E)
+    val xrefColor = if (dark) Color(0xFF7FB8E6) else Color(0xFF2E6F9E)
+    val footColor = if (dark) Color(0xFFE0B050) else Color(0xFF8A5A00)
     val notes = ArrayList<NoteItem>()
+    val offsets = HashMap<Int, Int>()
     val text = buildAnnotatedString {
         var italic = 0; var bold = 0; var jesus = 0; var head = 0
         var inNote = false; var noteX = false; var nb = StringBuilder(); var nrefs = ArrayList<RefLink>()
@@ -81,8 +86,8 @@ fun renderChapter(src: String, bible: Bible, showFoot: Boolean, showXref: Boolea
         fun style() = SpanStyle(
             fontStyle = if (italic > 0) FontStyle.Italic else null,
             fontWeight = if (bold > 0 || head > 0) FontWeight.Bold else null,
-            color = if (jesus > 0) JesusRed else Color.Unspecified,
-            fontSize = if (head > 0) 17.sp else 18.sp,
+            color = if (jesus > 0 && look.redLetters) jesusRed else Color.Unspecified,
+            fontSize = (if (head > 0) base - 1f else base).sp,
         )
         fun gap() { if (needGap) { if (!atStart) append("\n\n"); needGap = false } }
         for (line in src.lineSequence()) {
@@ -108,8 +113,8 @@ fun renderChapter(src: String, bible: Bible, showFoot: Boolean, showXref: Boolea
                             val id = notes.size
                             notes.add(NoteItem(verse, noteX, nb.toString().trim(), nrefs))
                             pushStringAnnotation("note", id.toString())
-                            withStyle(SpanStyle(fontSize = 12.sp, baselineShift = BaselineShift.Superscript,
-                                color = if (noteX) Color(0xFF2E6F9E) else Color(0xFF8A5A00), fontWeight = FontWeight.Bold)) {
+                            withStyle(SpanStyle(fontSize = (base * 0.67f).sp, baselineShift = BaselineShift.Superscript,
+                                color = if (noteX) xrefColor else footColor, fontWeight = FontWeight.Bold)) {
                                 append(if (noteX) "\u2009*\u2009" else "\u2009\u2020\u2009")
                             }
                             pop()
@@ -125,12 +130,13 @@ fun renderChapter(src: String, bible: Bible, showFoot: Boolean, showXref: Boolea
                     if (!atStart) append(" ")
                     pendingNum = arg
                     verse = arg.toIntOrNull() ?: verse
+                    offsets[verse] = length
                 }
                 "T" -> {
                     gap()
                     if (head == 0 && pendingNum != null) {
-                        withStyle(SpanStyle(fontSize = 11.sp, baselineShift = BaselineShift.Superscript,
-                            color = Color(0xFF6B5B3E), fontWeight = FontWeight.Bold)) { append(pendingNum!!) }
+                        withStyle(SpanStyle(fontSize = (base * 0.62f).sp, baselineShift = BaselineShift.Superscript,
+                            color = numColor, fontWeight = FontWeight.Bold)) { append(pendingNum!!) }
                         append("\u2009")
                         pendingNum = null
                     }
@@ -151,5 +157,5 @@ fun renderChapter(src: String, bible: Bible, showFoot: Boolean, showXref: Boolea
             }
         }
     }
-    return ChapterView(text, notes)
+    return ChapterView(text, notes, offsets)
 }

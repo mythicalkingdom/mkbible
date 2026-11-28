@@ -35,6 +35,14 @@ import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
 import androidx.compose.material3.TopAppBar
+import androidx.compose.foundation.isSystemInDarkTheme
+import androidx.compose.material3.darkColorScheme
+import androidx.compose.material3.lightColorScheme
+import androidx.compose.runtime.SideEffect
+import androidx.compose.ui.platform.LocalView
+import androidx.compose.ui.text.SpanStyle
+import androidx.compose.ui.text.buildAnnotatedString
+import androidx.compose.ui.text.withStyle
 import androidx.compose.runtime.Composable
 import kotlinx.coroutines.launch
 import androidx.compose.runtime.LaunchedEffect
@@ -63,7 +71,19 @@ class MainActivity : ComponentActivity() {
         copyAssets("sword", root)
         val store = ModuleStore(root)
         val prefs = getSharedPreferences("mkbible", MODE_PRIVATE)
-        setContent { MaterialTheme { Surface(Modifier.fillMaxSize()) { Reader(store, prefs) } } }
+        setContent {
+            var look by remember { mutableStateOf(loadLook(prefs)) }
+            val dark = look.theme == 2 || (look.theme == 0 && isSystemInDarkTheme())
+            val view = LocalView.current
+            SideEffect {
+                androidx.core.view.WindowCompat.getInsetsController(window, view).isAppearanceLightStatusBars = !dark
+            }
+            MaterialTheme(colorScheme = if (dark) darkColorScheme() else lightColorScheme()) {
+                Surface(Modifier.fillMaxSize()) {
+                    Reader(store, prefs, look, dark) { look = it; saveLook(prefs, it) }
+                }
+            }
+        }
     }
 
     private fun copyAssets(path: String, dest: File) {
@@ -82,7 +102,7 @@ class MainActivity : ComponentActivity() {
 
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
-fun Reader(store: ModuleStore, prefs: SharedPreferences) {
+fun Reader(store: ModuleStore, prefs: SharedPreferences, look: Look, dark: Boolean, onLook: (Look) -> Unit) {
     val context = LocalContext.current
     var mods by remember { mutableStateOf(store.list()) }
     var curBible by remember { mutableStateOf<Bible?>(null) }
@@ -95,6 +115,9 @@ fun Reader(store: ModuleStore, prefs: SharedPreferences) {
     var viewMenu by remember { mutableStateOf(false) }
     var openNote by remember { mutableStateOf<NoteItem?>(null) }
     var downloading by remember { mutableStateOf(false) }
+    var settings by remember { mutableStateOf(false) }
+    var targetVerse by remember { mutableIntStateOf(0) }
+    var layout by remember { mutableStateOf<androidx.compose.ui.text.TextLayoutResult?>(null) }
 
     fun openModule(m: ModInfo) {
         val h = Native.open(m.conf)
@@ -132,10 +155,23 @@ fun Reader(store: ModuleStore, prefs: SharedPreferences) {
     var searching by remember { mutableStateOf(false) }
     val scroll = rememberScrollState()
     val b = bible.books[book - 1]
-    val view = remember(bible, book, chap, showFoot, showXref) { renderChapter(bible.chapter(book, chap), bible, showFoot, showXref) }
+    val view = remember(bible, book, chap, showFoot, showXref, look, dark) { renderChapter(bible.chapter(book, chap), bible, showFoot, showXref, look, dark) }
     LaunchedEffect(book, chap) { scroll.scrollTo(0) }
+    // a jump to a verse: once this chapter's text has been laid out, scroll the verse to the top
+    LaunchedEffect(view, layout, targetVerse) {
+        val l = layout
+        if (targetVerse > 0 && l != null && l.layoutInput.text.text == view.text.text) {
+            val off = view.verseOffsets[targetVerse]
+            if (off != null) {
+                val o = off.coerceAtMost(view.text.length)
+                val line = l.getLineForOffset(o)
+                scroll.scrollTo(l.getLineTop(line).toInt())
+            }
+            targetVerse = 0
+        }
+    }
 
-    fun go(bk: Int, ch: Int) { book = bk; chap = ch }
+    fun go(bk: Int, ch: Int, v: Int = 0) { book = bk; chap = ch; targetVerse = v }
     fun next() {
         if (chap < b.chapters) chap++
         else if (book < bible.books.size) { book++; chap = 1 }
@@ -160,6 +196,9 @@ fun Reader(store: ModuleStore, prefs: SharedPreferences) {
                             androidx.compose.material3.DropdownMenuItem(
                                 text = { Text((if (showXref) "\u2713 " else "    ") + "Cross references") },
                                 onClick = { showXref = !showXref; prefs.edit().putBoolean("xref", showXref).apply() })
+                            HorizontalDivider()
+                            androidx.compose.material3.DropdownMenuItem(
+                                text = { Text("Settings…") }, onClick = { viewMenu = false; settings = true })
                         }
                     }
                 },
@@ -176,8 +215,7 @@ fun Reader(store: ModuleStore, prefs: SharedPreferences) {
         },
     ) { pad ->
         Column(Modifier.padding(pad).fillMaxSize().verticalScroll(scroll).padding(horizontal = 18.dp, vertical = 8.dp)) {
-            var layout by remember { mutableStateOf<androidx.compose.ui.text.TextLayoutResult?>(null) }
-            Text(view.text, fontFamily = FontFamily.Serif, lineHeight = 28.sp,
+            Text(view.text, fontFamily = if (look.serif) FontFamily.Serif else FontFamily.SansSerif, lineHeight = (look.fontSize * look.lineFactor).sp,
                 onTextLayout = { layout = it },
                 modifier = Modifier.pointerInput(view) {
                     detectTapGestures { pos ->
@@ -192,9 +230,10 @@ fun Reader(store: ModuleStore, prefs: SharedPreferences) {
                 })
         }
     }
+    if (settings) SettingsDialog(look, dark, onLook) { settings = false }
     if (downloading) DownloadScreen(store, { downloading = false }) { mods = store.list() }
     openNote?.let { n ->
-        NoteDialog(bible, n, { openNote = null }) { bk, ch -> openNote = null; go(bk, ch) }
+        NoteDialog(bible, n, { openNote = null }) { bk, ch, v -> openNote = null; go(bk, ch, v) }
     }
     if (modPicker) ModulePicker(mods, bible.name, { modPicker = false }, { modPicker = false; downloading = true },
         { modPicker = false; importer.launch(arrayOf("application/zip", "application/octet-stream")) }) {
@@ -204,12 +243,12 @@ fun Reader(store: ModuleStore, prefs: SharedPreferences) {
         androidx.compose.material3.AlertDialog(onDismissRequest = { message = null },
             confirmButton = { TextButton({ message = null }) { Text("OK") } }, text = { Text(m) })
     }
-    if (picking) Picker(bible, { picking = false }) { bk, ch -> go(bk, ch); picking = false }
-    if (searching) SearchScreen(bible, { searching = false }) { bk, ch -> go(bk, ch); searching = false }
+    if (picking) Picker(bible, { picking = false }) { bk, ch, v -> go(bk, ch, v); picking = false }
+    if (searching) SearchScreen(bible, { searching = false }) { bk, ch, v -> go(bk, ch, v); searching = false }
 }
 
 @Composable
-fun Picker(bible: Bible, onClose: () -> Unit, onPick: (Int, Int) -> Unit) {
+fun Picker(bible: Bible, onClose: () -> Unit, onPick: (Int, Int, Int) -> Unit) {
     var chosen by remember { mutableStateOf<Book?>(null) }
     var ref by remember { mutableStateOf("") }
     androidx.compose.ui.window.Dialog(onClose, androidx.compose.ui.window.DialogProperties(usePlatformDefaultWidth = false)) {
@@ -221,12 +260,12 @@ fun Picker(bible: Bible, onClose: () -> Unit, onPick: (Int, Int) -> Unit) {
                         singleLine = true,
                         keyboardOptions = KeyboardOptions(imeAction = ImeAction.Go),
                         keyboardActions = KeyboardActions(onGo = {
-                            bible.find(ref)?.let { (bk, ch, _) -> onPick(bk, ch) }
+                            bible.find(ref)?.let { (bk, ch, v) -> onPick(bk, ch, if (ref.contains(':') || ref.contains('.')) v else 0) }
                         }))
                     LazyVerticalGrid(GridCells.Fixed(4), Modifier.weight(1f)) {
                         items(bible.books) { k ->
                             Box(Modifier.fillMaxWidth().clickable {
-                                if (k.chapters == 1) onPick(k.number, 1) else chosen = k
+                                if (k.chapters == 1) onPick(k.number, 1, 0) else chosen = k
                             }.padding(vertical = 8.dp), contentAlignment = Alignment.Center) {
                                 Text(k.abbrev.ifBlank { k.name }, fontSize = 16.sp, maxLines = 1)
                             }
@@ -237,7 +276,7 @@ fun Picker(bible: Bible, onClose: () -> Unit, onPick: (Int, Int) -> Unit) {
                     LazyVerticalGrid(GridCells.Adaptive(56.dp), Modifier.weight(1f),
                         contentPadding = PaddingValues(4.dp)) {
                         items((1..c.chapters).toList()) { n ->
-                            Box(Modifier.clickable { onPick(c.number, n) }.padding(vertical = 14.dp).fillMaxWidth(),
+                            Box(Modifier.clickable { onPick(c.number, n, 0) }.padding(vertical = 14.dp).fillMaxWidth(),
                                 contentAlignment = Alignment.Center) { Text("$n", fontSize = 20.sp) }
                         }
                     }
@@ -250,7 +289,7 @@ fun Picker(bible: Bible, onClose: () -> Unit, onPick: (Int, Int) -> Unit) {
 }
 
 @Composable
-fun SearchScreen(bible: Bible, onClose: () -> Unit, onPick: (Int, Int) -> Unit) {
+fun SearchScreen(bible: Bible, onClose: () -> Unit, onPick: (Int, Int, Int) -> Unit) {
     var query by remember { mutableStateOf("") }
     var scope by remember { mutableIntStateOf(0) }
     var hits by remember { mutableStateOf<List<Hit>?>(null) }
@@ -282,7 +321,7 @@ fun SearchScreen(bible: Bible, onClose: () -> Unit, onPick: (Int, Int) -> Unit) 
                     Text("${h.size}${if (h.size >= 300) "+" else ""} verses")
                     LazyColumn(Modifier.weight(1f)) {
                         items(h) { x ->
-                            Column(Modifier.fillMaxWidth().clickable { onPick(x.book, x.chapter) }.padding(vertical = 8.dp)) {
+                            Column(Modifier.fillMaxWidth().clickable { onPick(x.book, x.chapter, x.verse) }.padding(vertical = 8.dp)) {
                                 Text("${bible.bookName(x.book)} ${x.chapter}:${x.verse}",
                                     fontSize = 14.sp, color = MaterialTheme.colorScheme.primary)
                                 Text(x.text, fontSize = 16.sp, maxLines = 3)
@@ -322,7 +361,7 @@ fun ModulePicker(mods: List<ModInfo>, current: String, onClose: () -> Unit, onDo
 }
 
 @Composable
-fun NoteDialog(bible: Bible, note: NoteItem, onClose: () -> Unit, onGo: (Int, Int) -> Unit) {
+fun NoteDialog(bible: Bible, note: NoteItem, onClose: () -> Unit, onGo: (Int, Int, Int) -> Unit) {
     androidx.compose.material3.AlertDialog(
         onDismissRequest = onClose,
         confirmButton = { TextButton(onClose) { Text("Close") } },
@@ -331,7 +370,7 @@ fun NoteDialog(bible: Bible, note: NoteItem, onClose: () -> Unit, onGo: (Int, In
             Column(Modifier.verticalScroll(rememberScrollState())) {
                 if (!note.crossRef && note.text.isNotEmpty()) Text(note.text, fontSize = 16.sp)
                 for (r in note.refs) {
-                    Column(Modifier.fillMaxWidth().clickable(enabled = r.book > 0) { onGo(r.book, r.chapter) }.padding(vertical = 8.dp)) {
+                    Column(Modifier.fillMaxWidth().clickable(enabled = r.book > 0) { onGo(r.book, r.chapter, r.verse) }.padding(vertical = 8.dp)) {
                         Text(r.label, fontSize = 15.sp, color = MaterialTheme.colorScheme.primary)
                         if (r.book > 0) Text(bible.verseText(r.book, r.chapter, r.verse), fontSize = 14.sp, maxLines = 4)
                     }
@@ -432,6 +471,51 @@ fun DownloadScreen(store: ModuleStore, onClose: () -> Unit, onInstalled: () -> U
                 status?.let { Text(it, Modifier.padding(vertical = 4.dp)) }
                 Text("Tap a module to install it.", fontSize = 12.sp)
                 TextButton(onClose) { Text("Close") }
+            }
+        }
+    }
+}
+
+@Composable
+fun SettingsDialog(look: Look, dark: Boolean, onLook: (Look) -> Unit, onClose: () -> Unit) {
+    androidx.compose.ui.window.Dialog(onClose, androidx.compose.ui.window.DialogProperties(usePlatformDefaultWidth = false)) {
+        Surface(Modifier.fillMaxSize()) {
+            Column(Modifier.padding(16.dp).verticalScroll(rememberScrollState())) {
+                Row(Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically) {
+                    Text("Settings", fontSize = 20.sp, modifier = Modifier.weight(1f))
+                    TextButton(onClose) { Text("Done") }
+                }
+                Text("Text size  ${look.fontSize.toInt()}", Modifier.padding(top = 12.dp))
+                androidx.compose.material3.Slider(look.fontSize, { onLook(look.copy(fontSize = Math.round(it).toFloat())) },
+                    valueRange = 12f..32f)
+                Text("Line spacing  ${"%.2f".format(look.lineFactor)}")
+                androidx.compose.material3.Slider(look.lineFactor, { onLook(look.copy(lineFactor = Math.round(it * 20f) / 20f)) },
+                    valueRange = 1.1f..2.1f)
+                Text("Font", Modifier.padding(top = 4.dp))
+                Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                    listOf("Serif" to true, "Sans" to false).forEach { (n, v) ->
+                        if (look.serif == v) Button({ }) { Text(n) } else OutlinedButton({ onLook(look.copy(serif = v)) }) { Text(n) }
+                    }
+                }
+                Text("Theme", Modifier.padding(top = 12.dp))
+                Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                    listOf("System" to 0, "Light" to 1, "Dark" to 2).forEach { (n, v) ->
+                        if (look.theme == v) Button({ }) { Text(n) } else OutlinedButton({ onLook(look.copy(theme = v)) }) { Text(n) }
+                    }
+                }
+                Row(Modifier.fillMaxWidth().padding(top = 12.dp), verticalAlignment = Alignment.CenterVertically) {
+                    Text("Words of Jesus in red", Modifier.weight(1f))
+                    androidx.compose.material3.Switch(look.redLetters, { onLook(look.copy(redLetters = it)) })
+                }
+                HorizontalDivider(Modifier.padding(vertical = 12.dp))
+                Text(buildAnnotatedString {
+                    withStyle(SpanStyle(fontSize = (look.fontSize * 0.62f).sp, baselineShift = androidx.compose.ui.text.style.BaselineShift.Superscript)) { append("16") }
+                    append("\u2009For God so loved the world, that he gave his only Son, ")
+                    withStyle(SpanStyle(color = if (look.redLetters) (if (dark) Color(0xFFFF8A80) else Color(0xFFB3261E)) else Color.Unspecified)) {
+                        append("that whoever believes in him should not perish but have eternal life.")
+                    }
+                }, fontSize = look.fontSize.sp, lineHeight = (look.fontSize * look.lineFactor).sp,
+                    fontFamily = if (look.serif) FontFamily.Serif else FontFamily.SansSerif)
             }
         }
     }
