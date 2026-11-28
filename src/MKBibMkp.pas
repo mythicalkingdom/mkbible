@@ -66,6 +66,12 @@ Function MkpToXhtml(Const S: AnsiString; From: MkpFormat; VerseNum: Integer; Wit
   Jesus as <span class="jesus">, italics and bold as i / b.  VerseNum > 0 puts <sup class="vn">N</sup> before the first
   text.  Footnotes (cross reference notes are left out) become a marker link in the text and an
   <aside epub:type="footnote" id="fnK"> appended to NoteHtml; NoteCount numbers them across calls.}
+Function MkpToEvents(Const S: AnsiString; From: MkpFormat): AnsiString;
+  {The parsed text as simple lines for a front end that does its own drawing (the Android app): one event per line,
+  a code, a tab and an argument.  T text, P paragraph, L line break, I+ I- italic, B+ B- bold, J+ J- words of Jesus,
+  N+ N- note (argument 1 = cross reference note), X+ X- cross reference (argument = OSIS reference), H+ H- heading
+  (argument = level), W+ W- word with Strong's numbers (argument = "H1234 G26").  Tabs and line breaks inside
+  text become spaces.}
 Function MkpSummary(Const S: AnsiString; From: MkpFormat): AnsiString;
   {Counts of what the text carries after parsing, e.g. "text=57 words=9 strongs=9 notes=1 ..."}
 Function MkpOsisToHuman(Const R: AnsiString): AnsiString;   {Gen.1.1 -> Gen 1:1}
@@ -3281,6 +3287,64 @@ Function MkpToXhtml(Const S: AnsiString; From: MkpFormat; VerseNum: Integer; Wit
   Normalize(D);
   Balance(D);
   MkpToXhtml := WriteXhtml(D, VerseNum, WithNotes, NoteCount, NoteHtml);
+  End;
+
+Function MkpToEvents(Const S: AnsiString; From: MkpFormat): AnsiString;
+  Var
+    D: TDoc;
+    i, j: Integer;
+    T, Code, Arg: AnsiString;
+  Begin
+  D.N := 0;
+  SetLength(D.Ev, 16);
+  Case From Of
+    mfPlain: Add(D, ekText, S);
+    mfOSIS: ParseOSIS(S, D);
+    mfThML: ParseThML(S, D);
+    mfGBF: ParseGBF(S, D, False);
+    mfMySword: ParseGBF(S, D, True);
+    mfSTEP: ParseSTEP(S, D);
+    mfTheWord: ParseGBF(S, D, True, True);
+    mfVPL: ParseLight(S, D);
+    mfHTML: ParseHTML(S, D);
+    mfTEI: ParseTEI(S, D);
+    mfUSFM: ParseUSFM(S, D);
+    mfUSFX: ParseUSFX(S, D);
+    mfZefania: ParseZefania(S, D);
+    mfUSX: ParseUSX(S, D);
+  End;
+  Normalize(D);
+  Balance(D);
+  MkpToEvents := '';
+  For i := 0 To D.N - 1 Do
+    Begin
+    Arg := '';
+    Case D.Ev[i].Kind Of
+      ekText: Begin
+        Code := 'T';
+        T := D.Ev[i].Txt;
+        For j := 1 To Length(T) Do If T[j] In [#9, #10, #13] Then T[j] := ' ';
+        Arg := T;
+        End;
+      ekPara: Code := 'P';
+      ekLine: Code := 'L';
+      ekItalicOn: Code := 'I+';
+      ekItalicOff: Code := 'I-';
+      ekBoldOn: Code := 'B+';
+      ekBoldOff: Code := 'B-';
+      ekJesusOn: Code := 'J+';
+      ekJesusOff: Code := 'J-';
+      ekNoteOn: Begin Code := 'N+'; Arg := IntToStr(D.Ev[i].Num); End;
+      ekNoteOff: Code := 'N-';
+      ekXrefOn: Begin Code := 'X+'; Arg := D.Ev[i].Txt; End;
+      ekXrefOff: Code := 'X-';
+      ekHeadOn: Begin Code := 'H+'; Arg := IntToStr(D.Ev[i].Num); End;
+      ekHeadOff: Code := 'H-';
+      ekWordOn: Begin Code := 'W+'; Arg := D.Ev[i].Strong; End;
+      ekWordOff: Code := 'W-';
+    End;
+    MkpToEvents := MkpToEvents + Code + #9 + Arg + #10;
+    End;
   End;
 
 Function MkpSummary(Const S: AnsiString; From: MkpFormat): AnsiString;
