@@ -3,9 +3,10 @@
 set -e
 cd "$(dirname "$0")"
 T=${1:-a64}
-FPC=$HOME/fpcupdeluxe/fpc/bin/x86_64-linux/fpc
-C=$HOME/fpcupdeluxe/cross/bin/all-android
-NDK=$HOME/Android/Sdk/ndk/22.1.7171670/toolchains/llvm/prebuilt/linux-x86_64/sysroot/usr/lib
+FPC=${FPC:-$HOME/fpcupdeluxe/fpc/bin/x86_64-linux/fpc}
+C=${ANDROID_CROSS_BIN:-$HOME/fpcupdeluxe/cross/bin/all-android}
+NDK=${NDK_SYSROOT_LIB:-$HOME/Android/Sdk/ndk/22.1.7171670/toolchains/llvm/prebuilt/linux-x86_64/sysroot/usr/lib}
+[ -x "$FPC" ] || { echo "FPC cross compiler not found at $FPC (set FPC=..., see android/README.md)"; exit 1; }
 if [ "$T" = a64 ]; then CPU=aarch64; TR=aarch64-linux-android; ABI=arm64-v8a; else CPU=x86_64; TR=x86_64-linux-android; ABI=x86_64; fi
 U=$HOME/fpcupdeluxe/fpc/units/$CPU-android
 mkdir -p out-$T ../app/src/main/jniLibs/$ABI

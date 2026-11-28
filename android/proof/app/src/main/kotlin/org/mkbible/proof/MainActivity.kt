@@ -68,7 +68,7 @@ class MainActivity : ComponentActivity() {
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
         val root = File(filesDir, "sword")
-        copyAssets("sword", root)
+        if (assets.list("")?.contains("sword") == true) copyAssets("sword", root)
         val store = ModuleStore(root)
         val prefs = getSharedPreferences("mkbible", MODE_PRIVATE)
         setContent {
