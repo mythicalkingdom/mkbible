@@ -9,6 +9,7 @@ data class Look(
     val serif: Boolean = true,
     val theme: Int = 0,
     val redLetters: Boolean = true,
+    val navAtEnd: Boolean = false,    // Previous / Next only at the end of the chapter, not as a permanent bottom bar
 )
 
 fun loadLook(p: SharedPreferences) = Look(
@@ -17,9 +18,10 @@ fun loadLook(p: SharedPreferences) = Look(
     serif = p.getBoolean("serif", true),
     theme = p.getInt("theme", 0),
     redLetters = p.getBoolean("redLetters", true),
+    navAtEnd = p.getBoolean("navAtEnd", false),
 )
 
 fun saveLook(p: SharedPreferences, l: Look) {
     p.edit().putFloat("fontSize", l.fontSize).putFloat("lineFactor", l.lineFactor).putBoolean("serif", l.serif)
-        .putInt("theme", l.theme).putBoolean("redLetters", l.redLetters).apply()
+        .putInt("theme", l.theme).putBoolean("redLetters", l.redLetters).putBoolean("navAtEnd", l.navAtEnd).apply()
 }

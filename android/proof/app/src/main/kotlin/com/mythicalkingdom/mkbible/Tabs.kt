@@ -39,7 +39,7 @@ fun loadTabs(p: SharedPreferences): List<Tab> {
 
 @Composable
 fun TabBar(titles: List<String>, active: Int, state: LazyListState, onPick: (Int) -> Unit, onClose: (Int) -> Unit, onNew: () -> Unit) {
-    LazyRow(Modifier.fillMaxWidth().padding(horizontal = 8.dp, vertical = 4.dp), state = state,
+    LazyRow(Modifier.fillMaxWidth().padding(start = 16.dp, end = 8.dp, top = 4.dp, bottom = 4.dp), state = state,
         horizontalArrangement = Arrangement.spacedBy(6.dp), verticalAlignment = Alignment.CenterVertically) {
         itemsIndexed(titles) { i, t ->
             val on = i == active

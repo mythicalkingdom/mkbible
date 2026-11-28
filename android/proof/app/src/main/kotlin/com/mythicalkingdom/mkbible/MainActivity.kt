@@ -7,6 +7,9 @@ import androidx.activity.result.contract.ActivityResultContracts
 import androidx.activity.ComponentActivity
 import androidx.activity.compose.setContent
 import androidx.compose.foundation.ExperimentalFoundationApi
+import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.filled.MoreVert
+import androidx.compose.material.icons.filled.Search
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.combinedClickable
 import androidx.compose.foundation.layout.Arrangement
@@ -23,6 +26,7 @@ import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.padding
+import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.grid.GridCells
 import androidx.compose.foundation.lazy.grid.LazyVerticalGrid
@@ -267,12 +271,34 @@ fun Reader(store: ModuleStore, prefs: SharedPreferences, look: Look, dark: Boole
         topBar = {
           Column {
             TopAppBar(
-                title = { Text("${b.name} $chap", Modifier.clickable { picking = true }) },
+                // full book name and chapter on the left (tap to go elsewhere); search and menu icons, module selector at the far right
+                title = {
+                    // the chapter number must never be cut off: only the book name gives way
+                    val size = (if (b.name.length > 11) 17 else 20).sp
+                    Row(Modifier.clickable(interactionSource = remember { androidx.compose.foundation.interaction.MutableInteractionSource() }, indication = null) { picking = true }
+                        .padding(vertical = 8.dp), verticalAlignment = Alignment.CenterVertically) {
+                        Text(b.name, Modifier.weight(1f, fill = false), fontSize = size, maxLines = 1,
+                            overflow = androidx.compose.ui.text.style.TextOverflow.Ellipsis)
+                        Text(" $chap", fontSize = size, maxLines = 1, softWrap = false)
+                    }
+                },
                 actions = {
-                    TextButton({ searching = true }) { Text("Search") }
+                    androidx.compose.material3.IconButton({ searching = true }, Modifier.width(40.dp)) {
+                        androidx.compose.material3.Icon(Icons.Default.Search, contentDescription = "Search")
+                    }
+                    TextButton({ modPicker = true }, contentPadding = PaddingValues(horizontal = 4.dp)) {
+                        Text(bible.name.take(8) + " \u25BE", fontSize = 16.sp, maxLines = 1)
+                    }
                     Box {
-                        TextButton({ viewMenu = true }) { Text("View") }
+                        androidx.compose.material3.IconButton({ viewMenu = true }, Modifier.width(36.dp)) {
+                            androidx.compose.material3.Icon(Icons.Default.MoreVert, contentDescription = "Menu")
+                        }
                         androidx.compose.material3.DropdownMenu(viewMenu, { viewMenu = false }) {
+                            androidx.compose.material3.DropdownMenuItem(
+                                text = { Text("New tab") }, onClick = { viewMenu = false; newTab(book, chap) })
+                            if (closedTabs.isNotEmpty()) androidx.compose.material3.DropdownMenuItem(
+                                text = { Text("Reopen closed tab") }, onClick = { viewMenu = false; reopenTab() })
+                            HorizontalDivider()
                             androidx.compose.material3.DropdownMenuItem(
                                 text = { Text((if (showFoot) "\u2713 " else "    ") + "Footnotes") },
                                 onClick = { showFoot = !showFoot; prefs.edit().putBoolean("foot", showFoot).apply() })
@@ -282,11 +308,6 @@ fun Reader(store: ModuleStore, prefs: SharedPreferences, look: Look, dark: Boole
                             androidx.compose.material3.DropdownMenuItem(
                                 text = { Text((if (strongOn) "\u2713 " else "    ") + "Strong's (tap a word)") },
                                 onClick = { strongOn = !strongOn; prefs.edit().putBoolean("strong", strongOn).apply() })
-                            HorizontalDivider()
-                            androidx.compose.material3.DropdownMenuItem(
-                                text = { Text("New tab") }, onClick = { viewMenu = false; newTab(book, chap) })
-                            if (closedTabs.isNotEmpty()) androidx.compose.material3.DropdownMenuItem(
-                                text = { Text("Reopen closed tab") }, onClick = { viewMenu = false; reopenTab() })
                             HorizontalDivider()
                             androidx.compose.material3.DropdownMenuItem(
                                 text = { Text("Settings…") }, onClick = { viewMenu = false; settings = true })
@@ -300,17 +321,12 @@ fun Reader(store: ModuleStore, prefs: SharedPreferences, look: Look, dark: Boole
         },
         bottomBar = {
             // the app draws edge to edge: keep the buttons clear of the system navigation bar
-            Row(Modifier.fillMaxWidth().windowInsetsPadding(WindowInsets.navigationBars).padding(8.dp),
-                horizontalArrangement = Arrangement.SpaceBetween) {
-                OutlinedButton({ prev() }) { Text("< Previous", maxLines = 1, softWrap = false) }
-                TextButton({ modPicker = true }, Modifier.weight(1f)) {
-                    Text(bible.name.take(12), maxLines = 1)
-                }
-                OutlinedButton({ next() }) { Text("Next >", maxLines = 1, softWrap = false) }
+            if (!look.navAtEnd) Box(Modifier.windowInsetsPadding(WindowInsets.navigationBars).padding(8.dp)) {
+                PrevNext({ prev() }, { next() })
             }
         },
     ) { pad ->
-        Column(Modifier.padding(pad).fillMaxSize().verticalScroll(scroll).padding(horizontal = 18.dp, vertical = 8.dp)) {
+        Column(Modifier.padding(pad).fillMaxSize().verticalScroll(scroll).padding(horizontal = 16.dp, vertical = 8.dp)) {
             Text(view.text, fontFamily = if (look.serif) FontFamily.Serif else FontFamily.SansSerif, lineHeight = (look.fontSize * look.lineFactor).sp,
                 onTextLayout = { layout = it },
                 modifier = Modifier.pointerInput(view) {
@@ -328,6 +344,8 @@ fun Reader(store: ModuleStore, prefs: SharedPreferences, look: Look, dark: Boole
                         }
                     }
                 })
+            // with "only at the end of the chapter" the buttons are the last thing on the page
+            if (look.navAtEnd) Box(Modifier.padding(vertical = 20.dp)) { PrevNext({ prev() }, { next() }) }
         }
     }
     openStrong?.let { (nums, word) -> StrongsDialog(lexicons, store, nums, word) { openStrong = null } }
@@ -617,6 +635,10 @@ fun SettingsDialog(look: Look, dark: Boolean, onLook: (Look) -> Unit, onClose: (
                     Text("Words of Jesus in red", Modifier.weight(1f))
                     androidx.compose.material3.Switch(look.redLetters, { onLook(look.copy(redLetters = it)) })
                 }
+                Row(Modifier.fillMaxWidth().padding(top = 8.dp), verticalAlignment = Alignment.CenterVertically) {
+                    Text("Previous / Next only at the end of the chapter", Modifier.weight(1f))
+                    androidx.compose.material3.Switch(look.navAtEnd, { onLook(look.copy(navAtEnd = it)) })
+                }
                 HorizontalDivider(Modifier.padding(vertical = 12.dp))
                 Text(buildAnnotatedString {
                     withStyle(SpanStyle(fontSize = (look.fontSize * 0.62f).sp, baselineShift = androidx.compose.ui.text.style.BaselineShift.Superscript)) { append("16") }
@@ -686,4 +708,12 @@ fun StrongsDialog(lex: Lexicons, store: ModuleStore, numbers: String, word: Stri
 fun FullScreen(onClose: () -> Unit, content: @Composable () -> Unit) {
     androidx.activity.compose.BackHandler(onBack = onClose)
     content()
+}
+
+@Composable
+fun PrevNext(onPrev: () -> Unit, onNext: () -> Unit) {
+    Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceBetween) {
+        OutlinedButton(onPrev) { Text("< Previous", maxLines = 1, softWrap = false) }
+        OutlinedButton(onNext) { Text("Next >", maxLines = 1, softWrap = false) }
+    }
 }
