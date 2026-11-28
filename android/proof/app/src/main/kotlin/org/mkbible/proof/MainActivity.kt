@@ -223,12 +223,13 @@ fun Picker(bible: Bible, onClose: () -> Unit, onPick: (Int, Int) -> Unit) {
                         keyboardActions = KeyboardActions(onGo = {
                             bible.find(ref)?.let { (bk, ch, _) -> onPick(bk, ch) }
                         }))
-                    LazyColumn(Modifier.weight(1f)) {
+                    LazyVerticalGrid(GridCells.Fixed(4), Modifier.weight(1f)) {
                         items(bible.books) { k ->
-                            Text(k.name, Modifier.fillMaxWidth().clickable {
+                            Box(Modifier.fillMaxWidth().clickable {
                                 if (k.chapters == 1) onPick(k.number, 1) else chosen = k
-                            }.padding(vertical = 12.dp), fontSize = 18.sp)
-                            HorizontalDivider()
+                            }.padding(vertical = 8.dp), contentAlignment = Alignment.Center) {
+                                Text(k.abbrev.ifBlank { k.name }, fontSize = 16.sp, maxLines = 1)
+                            }
                         }
                     }
                 } else {
