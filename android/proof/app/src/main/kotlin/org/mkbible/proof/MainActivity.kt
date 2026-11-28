@@ -316,7 +316,7 @@ fun Reader(store: ModuleStore, prefs: SharedPreferences, look: Look, dark: Boole
                         if (hit != null) openNote = view.notes[hit.item.toInt()]
                         else {
                             val w = view.text.getStringAnnotations("strong", off, (off + 1).coerceAtMost(view.text.length)).firstOrNull()
-                            if (w != null) openStrong = w.item to view.text.text.substring(w.start, w.end).trim()
+                            if (w != null) openStrong = w.item to view.text.text.substring(w.start, w.end).trim().trimStart { it.isDigit() || it == '\u2009' || it.isWhitespace() }
                         }
                     }
                 })

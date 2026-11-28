@@ -23,4 +23,8 @@ The first Gradle build downloads the standard modules the app ships with (World 
 ASV, KJV with Strong's numbers, StrongsGreek and StrongsHebrew from CrossWire); they are not stored in git.  The texts
 are public domain; CrossWire distributes the KJV module under the GPL.  `local.properties` must point `sdk.dir` at your Android SDK.
 
+For a smaller APK: `./build.sh release` makes one APK per CPU (arm64-v8a for phones, x86_64 for emulators) and a
+universal one, about 14.5 MB each instead of 24.7 MB (R8 code shrinking).  The release APKs are signed with the debug
+key for now, so they can be installed by hand but are not ready for a store.
+
 Install on an emulator or phone: `adb install -r app/build/outputs/apk/debug/app-debug.apk`.

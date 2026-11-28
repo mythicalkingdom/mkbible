@@ -17,6 +17,25 @@ android {
         versionName = "0.0.1"
         ndk { abiFilters += listOf("arm64-v8a", "x86_64") }
     }
+    // Release build: R8 shrinks the code (Compose brings a lot), resources are shrunk, and one APK per CPU is made
+    // (plus a universal one for emulators).  For now the release is signed with the debug key so it can be installed
+    // by hand; a real release key is still to do (not for the Play Store as it is).
+    buildTypes {
+        release {
+            isMinifyEnabled = true
+            isShrinkResources = true
+            proguardFiles(getDefaultProguardFile("proguard-android-optimize.txt"), "proguard-rules.pro")
+            signingConfig = signingConfigs.getByName("debug")
+        }
+    }
+    splits {
+        abi {
+            isEnable = true
+            reset()
+            include("arm64-v8a", "x86_64")
+            isUniversalApk = true
+        }
+    }
     compileOptions {
         sourceCompatibility = JavaVersion.VERSION_17
         targetCompatibility = JavaVersion.VERSION_17

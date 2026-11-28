@@ -11,5 +11,5 @@ if [ "$T" = a64 ]; then CPU=aarch64; TR=aarch64-linux-android; ABI=arm64-v8a; el
 U=$HOME/fpcupdeluxe/fpc/units/$CPU-android
 mkdir -p out-$T ../app/src/main/jniLibs/$ABI
 $FPC -Tandroid -P$CPU -Fu$U/rtl -Fu$U/jni -Fu$U/paszlib -Fu$U/bzip2 -Fu$U/fcl-base -Fu$U/regexpr -Fu$U/sqlite -Fu$U/rtl-objpas -Fu$U/rtl-extra -Fu$U/rtl-unicode -Fu$U/hash -Fu../../../src -Fi../../../src -FUout-$T -FEout-$T \
-  -FD$C/bin -Fl$NDK/$TR/29 -Fl$NDK/$TR -vew mkbibjni.pas
+  -O2 -XX -CX -Xs -FD$C/bin -Fl$NDK/$TR/29 -Fl$NDK/$TR -vew mkbibjni.pas
 cp out-$T/libmkbibjni.so ../app/src/main/jniLibs/$ABI/
