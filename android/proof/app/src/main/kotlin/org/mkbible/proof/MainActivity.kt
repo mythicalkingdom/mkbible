@@ -132,7 +132,7 @@ fun Reader(store: ModuleStore, prefs: SharedPreferences, look: Look, dark: Boole
         prefs.edit().putString("module", m.name).apply()
     }
     if (curBible == null) {
-        val want = prefs.getString("module", null)
+        val want = prefs.getString("module", "engwebu2025eb")
         (mods.firstOrNull { it.name == want } ?: mods.firstOrNull())?.let { openModule(it) }
     }
     val importer = rememberLauncherForActivityResult(ActivityResultContracts.OpenDocument()) { uri ->

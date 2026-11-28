@@ -33,26 +33,32 @@ dependencies {
     implementation("androidx.compose.ui:ui")
 }
 
-// The module bundled for the first run is public domain (World English Bible, from eBible.org's Sword repository).
-// It is not kept in git: this task downloads it into src/main/assets/sword when it is missing.
-val bundledModule = "engwebu2025eb"
-val fetchBundledModule by tasks.registering {
+// The standard modules bundled for the first run: the World English Bible Updated (eBible.org), the ASV and the KJV
+// with Strong's numbers, and the Strong's Greek and Hebrew dictionaries (CrossWire).  All are public domain texts; the
+// CrossWire KJV module itself is distributed under the GPL.  They are not kept in git: this task
+// downloads whatever is missing into src/main/assets/sword.
+val ebible = "https://ebible.org/sword/packages"
+val crosswire = "https://www.crosswire.org/ftpmirror/pub/sword/raw/packages"
+val bundledModules = listOf("engwebu2025eb" to ebible, "ASV" to crosswire, "KJV" to crosswire, "StrongsGreek" to crosswire, "StrongsHebrew" to crosswire)
+val fetchBundledModules by tasks.registering {
     val dest = layout.projectDirectory.dir("src/main/assets/sword").asFile
-    val zip = layout.buildDirectory.file("bundled/$bundledModule.zip").get().asFile
+    val cache = layout.buildDirectory.dir("bundled").get().asFile
     outputs.dir(dest)
-    onlyIf { !File(dest, "mods.d/$bundledModule.conf").exists() }
+    onlyIf { bundledModules.any { (id, _) -> !File(dest, "mods.d/${id.lowercase()}.conf").exists() } }
     doLast {
-        zip.parentFile.mkdirs()
-        URL("https://ebible.org/sword/packages/$bundledModule.zip").openStream().use { i ->
-            zip.outputStream().use { o -> i.copyTo(o) }
-        }
-        ZipInputStream(zip.inputStream()).use { z ->
-            while (true) {
-                val e = z.nextEntry ?: break
-                if (e.isDirectory) continue
-                val f = File(dest, e.name)
-                f.parentFile.mkdirs()
-                f.outputStream().use { o -> z.copyTo(o) }
+        cache.mkdirs()
+        for ((id, base) in bundledModules) {
+            if (File(dest, "mods.d/${id.lowercase()}.conf").exists()) continue
+            val zip = File(cache, "$id.zip")
+            URL("$base/$id.zip").openStream().use { i -> zip.outputStream().use { o -> i.copyTo(o) } }
+            ZipInputStream(zip.inputStream()).use { z ->
+                while (true) {
+                    val e = z.nextEntry ?: break
+                    if (e.isDirectory) continue
+                    val f = File(dest, e.name)
+                    f.parentFile.mkdirs()
+                    f.outputStream().use { o -> z.copyTo(o) }
+                }
             }
         }
     }
@@ -67,4 +73,4 @@ val checkNativeLibs by tasks.registering {
             throw GradleException("libmkbibjni.so is missing for ${missing.joinToString()}: run native/build.sh a64 and native/build.sh x64 first (see android/README.md)")
     }
 }
-tasks.named("preBuild") { dependsOn(fetchBundledModule, checkNativeLibs) }
+tasks.named("preBuild") { dependsOn(fetchBundledModules, checkNativeLibs) }

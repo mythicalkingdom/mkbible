@@ -1,4 +1,4 @@
-Unit MKDicSwd;       {Sword dictionary / lexicon object (zLD modules)}
+Unit MKDicSwd;       {Sword dictionary / lexicon object (zLD and RawLD modules)}
 
 {$I MKBib.Def}
 
@@ -19,7 +19,9 @@ Unit MKDicSwd;       {Sword dictionary / lexicon object (zLD modules)}
             ZIP blocks of 200 entries, UTF-8, and the markup given by SetMarkup (SourceType).  Keys
             are stored upper case; entries whose keys differ only in case keep the last one.
             Strong's modules get Feature=GreekDef / HebrewDef (SetStrongs).
-  Not supported: RawLD modules, enciphered modules, case sensitive modules, upper casing of
+  RawLD / RawLD4 modules (Strong's Hebrew, for one) are read too: dict.idx has 6 (RawLD) or 8 (RawLD4) byte records,
+  start and size of the record in dict.dat, which is   KEY \ LF  text   (no blocks, no compression).
+  Not supported: enciphered modules, case sensitive modules, upper casing of
   non-ASCII keys (their order may then differ from what Sword sorts).
 }
 
@@ -54,6 +56,8 @@ Type
   Conf: BibStr;
   Opened, WMode: Boolean;
   Comp: Integer;                     {0 zip, 1 lzss, 2 bzip2}
+  Raw: Boolean;                      {RawLD module: uncompressed, no blocks}
+  RawStride: LongInt;                {idx record size of a RawLD module: 6, or 8 for RawLD4}
   Mk: BibMarkup;
   IdxData, DatData, ZdxData, ZdtData: Pointer;
   IdxSize, DatSize, ZdxSize, ZdtSize: LongInt;
@@ -64,6 +68,8 @@ Type
   Function  DatKeyAt(Start: LongInt): BibStr;
   Function  BlockText(Blk: LongInt): BibStr;
   Function  Inflate(Src: Pointer; Len: LongWord): BibStr;
+  Function  RawKeyAt(Start: LongInt): BibStr;
+  Function  RawEntryAt(Idx: LongInt): BibStr;
   Procedure FreeData;
   End;
 
@@ -84,6 +90,7 @@ Constructor SwordDictObj.Init;
   PathSpec := ''; ConfPath := ''; BaseDir := ''; ModName := ''; DataBase := ''; Conf := '';
   Opened := False; WMode := False;
   Comp := 0;
+  Raw := False; RawStride := 6;
   Mk := bmGBF;
   IdxData := Nil; DatData := Nil; ZdxData := Nil; ZdtData := Nil;
   CBlk := -1; CBuf := '';
@@ -190,7 +197,9 @@ Function SwordDictObj.OpenBible: Word;
     Exit;
     End;
   Drv := LowerCase(SwcGet(Conf, 'ModDrv'));
-  If Drv <> 'zld' Then
+  Raw := (Drv = 'rawld') Or (Drv = 'rawld4');
+  If Drv = 'rawld4' Then RawStride := 8 Else RawStride := 6;
+  If (Drv <> 'zld') And Not Raw Then
     Begin
     OpenBible := bibErrUnsupported;
     Exit;
@@ -201,7 +210,8 @@ Function SwordDictObj.OpenBible: Word;
     Exit;
     End;
   CT := LowerCase(SwcGet(Conf, 'CompressType'));
-  If CT = 'zip' Then Comp := 0
+  If Raw Then Comp := 0
+  Else If CT = 'zip' Then Comp := 0
   Else If CT = 'bzip2' Then Comp := 2
   Else If (CT = 'lzss') Or (CT = '') Then Comp := 1
   Else
@@ -219,18 +229,22 @@ Function SwordDictObj.OpenBible: Word;
   If Copy(DP, 1, 2) = './' Then DP := Copy(DP, 3, 255);
   If (DP <> '') And (DP[1] <> '/') Then DataBase := BaseDir + DP Else DataBase := DP;
   If Not (LoadAll(DataBase + '.idx', IdxData, IdxSize) And LoadAll(DataBase + '.dat', DatData, DatSize) And
-          LoadAll(DataBase + '.zdx', ZdxData, ZdxSize) And LoadAll(DataBase + '.zdt', ZdtData, ZdtSize)) Then
+          (Raw Or (LoadAll(DataBase + '.zdx', ZdxData, ZdxSize) And LoadAll(DataBase + '.zdt', ZdtData, ZdtSize)))) Then
     Begin
     FreeData;
     OpenBible := bibErrNotFound;
     Exit;
     End;
   ClearEntries;
-  N := IdxSize Div 8;
+  If Raw Then N := IdxSize Div RawStride Else N := IdxSize Div 8;
   For i := 0 To N - 1 Do
     Begin
-    Start := GetU32(IdxData, i * 8);
-    If Start < LongWord(DatSize) Then AddKey(DatKeyAt(Start)) Else AddKey('');
+    If Raw Then Start := GetU32(IdxData, i * RawStride) Else Start := GetU32(IdxData, i * 8);
+    If Start < LongWord(DatSize) Then
+      Begin
+      If Raw Then AddKey(RawKeyAt(Start)) Else AddKey(DatKeyAt(Start));
+      End
+    Else AddKey('');
     End;
   Feat := LowerCase(SwcGet(Conf, 'Feature'));
   StrongsKeys := False; StrongsPre := #0;
@@ -362,6 +376,59 @@ Function SwordDictObj.BlockText(Blk: LongInt): BibStr;
   BlockText := CBuf;
   End;
 
+{ RawLD: the key of the record at a dat offset, upper case; the first record (the module's own text) has none }
+Function SwordDictObj.RawKeyAt(Start: LongInt): BibStr;
+  Var
+    E: LongInt;
+    R: BibStr;
+  Begin
+  E := Start;
+  While (E < DatSize) And ((PByte(DatData) + E)^ <> 10) Do Inc(E);
+  If (E >= DatSize) Or (E = Start) Then Begin RawKeyAt := ''; Exit; End;
+  Dec(E);
+  If (E > Start) And ((PByte(DatData) + E)^ = 13) Then Dec(E);
+  If (PByte(DatData) + E)^ <> Ord('\') Then Begin RawKeyAt := ''; Exit; End;
+  SetLength(R, E - Start);
+  If E > Start Then Move((PByte(DatData) + Start)^, R[1], E - Start);
+  RawKeyAt := UpperCase(R);
+  End;
+
+{ RawLD: the text of entry Idx (after the key line), @LINK entries followed; CR removed }
+Function SwordDictObj.RawEntryAt(Idx: LongInt): BibStr;
+  Var
+    Start, Size: LongWord;
+    P, E, Depth, Cur: LongInt;
+    Rec, Target: BibStr;
+  Begin
+  RawEntryAt := '';
+  Cur := Idx;
+  For Depth := 1 To 8 Do
+    Begin
+    Start := GetU32(IdxData, (Cur - 1) * RawStride);
+    If RawStride = 8 Then Size := GetU32(IdxData, (Cur - 1) * RawStride + 4)
+    Else Size := LEtoN(PWord(PByte(IdxData) + (Cur - 1) * RawStride + 4)^);
+    If Start >= LongWord(DatSize) Then Exit;
+    If Start + Size > LongWord(DatSize) Then Size := LongWord(DatSize) - Start;
+    SetLength(Rec, Size);
+    If Size > 0 Then Move((PByte(DatData) + Start)^, Rec[1], Size);
+    P := Pos(#10, Rec);
+    If RawKeyAt(Start) <> '' Then Rec := Copy(Rec, P + 1, Length(Rec));
+    If Copy(Rec, 1, 5) = '@LINK' Then
+      Begin
+      Target := Copy(Rec, 7, Length(Rec));
+      E := 1;
+      While (E <= Length(Target)) And (Not (Target[E] In [#13, #10, #0])) Do Inc(E);
+      Target := Copy(Target, 1, E - 1);
+      Cur := FindKey(Target);
+      If Cur = 0 Then Exit;
+      Continue;
+      End;
+    While Pos(#13, Rec) > 0 Do Delete(Rec, Pos(#13, Rec), 1);
+    RawEntryAt := Rec;
+    Exit;
+    End;
+  End;
+
 Function SwordDictObj.GetEntryAt(Idx: LongInt): BibStr;
   Var
     Start, Size: LongWord;
@@ -372,6 +439,7 @@ Function SwordDictObj.GetEntryAt(Idx: LongInt): BibStr;
   Begin
   GetEntryAt := '';
   If (Not Opened) Or (Idx < 1) Or (Idx > KeyCount) Then Exit;
+  If Raw Then Begin GetEntryAt := RawEntryAt(Idx); Exit; End;
   Cur := Idx;
   For Depth := 1 To 8 Do                              {@LINK entries point at another key}
     Begin

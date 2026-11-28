@@ -19,7 +19,8 @@ Needs, all free:
     ./build.sh                       # native libraries for arm64 and x86_64, then ./gradlew assembleDebug
 
 The paths in `native/build.sh` can be overridden with `FPC`, `ANDROID_CROSS_BIN` and `NDK_SYSROOT_LIB`.
-The first Gradle build downloads the public domain World English Bible (eBible.org) that the app ships for its first
-run; it is not stored in git.  `local.properties` must point `sdk.dir` at your Android SDK.
+The first Gradle build downloads the standard modules the app ships with (World English Bible Updated from eBible.org;
+ASV, KJV with Strong's numbers, StrongsGreek and StrongsHebrew from CrossWire); they are not stored in git.  The texts
+are public domain; CrossWire distributes the KJV module under the GPL.  `local.properties` must point `sdk.dir` at your Android SDK.
 
 Install on an emulator or phone: `adb install -r app/build/outputs/apk/debug/app-debug.apk`.
