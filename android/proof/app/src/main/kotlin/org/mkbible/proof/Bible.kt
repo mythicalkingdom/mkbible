@@ -12,6 +12,14 @@ import androidx.compose.ui.unit.sp
 
 class Book(val number: Int, val osis: String, val name: String, val abbrev: String, val chapters: Int)
 
+/** A cross reference inside a note: the text as printed and the first verse it points to (0 = unparsed). */
+class RefLink(val label: String, val book: Int, val chapter: Int, val verse: Int)
+
+/** A footnote or cross reference note of a chapter. */
+class NoteItem(val verse: Int, val crossRef: Boolean, val text: String, val refs: List<RefLink>)
+
+class ChapterView(val text: AnnotatedString, val notes: List<NoteItem>)
+
 class Hit(val book: Int, val chapter: Int, val verse: Int, val text: String)
 
 /** One opened module. Calls into the native library are serialized, the module object is not thread safe. */
@@ -43,62 +51,105 @@ class Bible(val handle: Long) {
         return if (f.size == 3) Triple(f[0].toInt(), f[1].toInt(), f[2].toInt()) else null
     }
 
+    /** "John.3.16", "Gen.1.1-Gen.1.3" or "Ps.23" (first verse) as book / chapter / verse, null if unknown. */
+    fun parseOsis(r: String): Triple<Int, Int, Int>? {
+        val f = r.substringBefore('-').split('.')
+        if (f.size < 2) return null
+        val bk = books.firstOrNull { it.osis.equals(f[0], true) } ?: return null
+        val ch = f[1].toIntOrNull() ?: return null
+        return Triple(bk.number, ch, f.getOrNull(2)?.toIntOrNull() ?: 1)
+    }
+
+    @Synchronized fun verseText(book: Int, chap: Int, verse: Int): String = Native.verseText(handle, book, chap, verse)
+
     fun bookName(n: Int) = books.getOrNull(n - 1)?.name ?: "?"
 }
 
 private val JesusRed = Color(0xFFB3261E)
 
-/** Turns the events of one chapter (see MkpToEvents) into styled text. */
-fun renderChapter(src: String, showNotes: Boolean = false): AnnotatedString = buildAnnotatedString {
-    var italic = 0; var bold = 0; var jesus = 0; var head = 0; var note = 0
-    var atStart = true
-    var needGap = false     // a paragraph break is pending
-    var pendingNum: String? = null   // verse number waits for the first body text (a Psalm title comes first)
-    fun style() = SpanStyle(
-        fontStyle = if (italic > 0) FontStyle.Italic else null,
-        fontWeight = if (bold > 0 || head > 0) FontWeight.Bold else null,
-        color = if (jesus > 0) JesusRed else Color.Unspecified,
-        fontSize = if (head > 0) 17.sp else 18.sp,
-    )
-    fun breakLine(double: Boolean) {
-        if (atStart) return
-        append(if (double) "\n\n" else "\n")
-    }
-    for (line in src.lineSequence()) {
-        if (line.isEmpty()) continue
-        val tab = line.indexOf('\t')
-        val code = if (tab < 0) line else line.substring(0, tab)
-        val arg = if (tab < 0) "" else line.substring(tab + 1)
-        when (code) {
-            "S" -> { if (!atStart) append("\n\n"); atStart = true }
-            "V" -> {
-                if (needGap) { breakLine(true); needGap = false }
-                else if (!atStart) append(" ")
-                pendingNum = arg
-            }
-            "T" -> if (note == 0 || showNotes) {
-                if (needGap) { breakLine(true); needGap = false }
-                if (head == 0 && pendingNum != null) {
-                    withStyle(SpanStyle(fontSize = 11.sp, baselineShift = BaselineShift.Superscript,
-                        color = Color(0xFF6B5B3E), fontWeight = FontWeight.Bold)) { append(pendingNum!!) }
-                    append("\u2009")
-                    pendingNum = null
+/** Turns the events of one chapter (see MkpToEvents) into styled text, with a tappable marker for each note. */
+fun renderChapter(src: String, bible: Bible, showFoot: Boolean, showXref: Boolean): ChapterView {
+    val notes = ArrayList<NoteItem>()
+    val text = buildAnnotatedString {
+        var italic = 0; var bold = 0; var jesus = 0; var head = 0
+        var inNote = false; var noteX = false; var nb = StringBuilder(); var nrefs = ArrayList<RefLink>()
+        var refOsis: String? = null; var refLabel = StringBuilder()
+        var verse = 0
+        var atStart = true
+        var needGap = false
+        var pendingNum: String? = null
+        fun style() = SpanStyle(
+            fontStyle = if (italic > 0) FontStyle.Italic else null,
+            fontWeight = if (bold > 0 || head > 0) FontWeight.Bold else null,
+            color = if (jesus > 0) JesusRed else Color.Unspecified,
+            fontSize = if (head > 0) 17.sp else 18.sp,
+        )
+        fun gap() { if (needGap) { if (!atStart) append("\n\n"); needGap = false } }
+        for (line in src.lineSequence()) {
+            if (line.isEmpty()) continue
+            val tab = line.indexOf('\t')
+            val code = if (tab < 0) line else line.substring(0, tab)
+            val arg = if (tab < 0) "" else line.substring(tab + 1)
+            if (inNote) {
+                when (code) {
+                    "T" -> { nb.append(arg); if (refOsis != null) refLabel.append(arg) }
+                    "X+" -> { refOsis = arg; refLabel = StringBuilder() }
+                    "X-" -> {
+                        val o = refOsis
+                        if (o != null) {
+                            val p = bible.parseOsis(o)
+                            nrefs.add(RefLink(refLabel.toString().trim().ifEmpty { o }, p?.first ?: 0, p?.second ?: 0, p?.third ?: 0))
+                        }
+                        refOsis = null
+                    }
+                    "N-" -> {
+                        inNote = false
+                        if (if (noteX) showXref else showFoot) {
+                            val id = notes.size
+                            notes.add(NoteItem(verse, noteX, nb.toString().trim(), nrefs))
+                            pushStringAnnotation("note", id.toString())
+                            withStyle(SpanStyle(fontSize = 12.sp, baselineShift = BaselineShift.Superscript,
+                                color = if (noteX) Color(0xFF2E6F9E) else Color(0xFF8A5A00), fontWeight = FontWeight.Bold)) {
+                                append(if (noteX) "\u2009*\u2009" else "\u2009\u2020\u2009")
+                            }
+                            pop()
+                        }
+                    }
                 }
-                withStyle(style()) { append(arg) }
-                atStart = false
+                continue
             }
-            "P" -> if (!atStart) needGap = true
-            "L" -> if (!atStart && note == 0) append("\n")
-            "I+" -> italic++
-            "I-" -> if (italic > 0) italic--
-            "B+" -> bold++
-            "B-" -> if (bold > 0) bold--
-            "J+" -> jesus++
-            "J-" -> if (jesus > 0) jesus--
-            "N+" -> note++
-            "N-" -> if (note > 0) note--
-            "H+" -> { head++; if (!atStart) append("\n\n"); atStart = true }
-            "H-" -> { if (head > 0) head--; append("\n"); atStart = true; needGap = false }
+            when (code) {
+                "S" -> { if (!atStart) append("\n\n"); atStart = true }
+                "V" -> {
+                    gap()
+                    if (!atStart) append(" ")
+                    pendingNum = arg
+                    verse = arg.toIntOrNull() ?: verse
+                }
+                "T" -> {
+                    gap()
+                    if (head == 0 && pendingNum != null) {
+                        withStyle(SpanStyle(fontSize = 11.sp, baselineShift = BaselineShift.Superscript,
+                            color = Color(0xFF6B5B3E), fontWeight = FontWeight.Bold)) { append(pendingNum!!) }
+                        append("\u2009")
+                        pendingNum = null
+                    }
+                    withStyle(style()) { append(arg) }
+                    atStart = false
+                }
+                "P" -> if (!atStart) needGap = true
+                "L" -> if (!atStart) append("\n")
+                "I+" -> italic++
+                "I-" -> if (italic > 0) italic--
+                "B+" -> bold++
+                "B-" -> if (bold > 0) bold--
+                "J+" -> jesus++
+                "J-" -> if (jesus > 0) jesus--
+                "N+" -> { inNote = true; noteX = arg == "1"; nb = StringBuilder(); nrefs = ArrayList(); refOsis = null }
+                "H+" -> { head++; if (!atStart) append("\n\n"); atStart = true }
+                "H-" -> { if (head > 0) head--; append("\n"); atStart = true; needGap = false }
+            }
         }
     }
+    return ChapterView(text, notes)
 }

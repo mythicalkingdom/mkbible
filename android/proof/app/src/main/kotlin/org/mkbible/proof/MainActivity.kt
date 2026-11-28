@@ -44,6 +44,8 @@ import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.foundation.gestures.detectTapGestures
+import androidx.compose.ui.input.pointer.pointerInput
 import androidx.compose.ui.focus.focusRequester
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.platform.LocalContext
@@ -87,6 +89,10 @@ fun Reader(store: ModuleStore, prefs: SharedPreferences) {
     var book by remember { mutableIntStateOf(prefs.getInt("book", 43)) }          // John
     var chap by remember { mutableIntStateOf(prefs.getInt("chap", 3)) }
     var modPicker by remember { mutableStateOf(false) }
+    var showFoot by remember { mutableStateOf(prefs.getBoolean("foot", true)) }
+    var showXref by remember { mutableStateOf(prefs.getBoolean("xref", true)) }
+    var viewMenu by remember { mutableStateOf(false) }
+    var openNote by remember { mutableStateOf<NoteItem?>(null) }
 
     fun openModule(m: ModInfo) {
         val h = Native.open(m.conf)
@@ -124,7 +130,7 @@ fun Reader(store: ModuleStore, prefs: SharedPreferences) {
     var searching by remember { mutableStateOf(false) }
     val scroll = rememberScrollState()
     val b = bible.books[book - 1]
-    val text = remember(bible, book, chap) { renderChapter(bible.chapter(book, chap)) }
+    val view = remember(bible, book, chap, showFoot, showXref) { renderChapter(bible.chapter(book, chap), bible, showFoot, showXref) }
     LaunchedEffect(book, chap) { scroll.scrollTo(0) }
 
     fun go(bk: Int, ch: Int) { book = bk; chap = ch }
@@ -143,6 +149,17 @@ fun Reader(store: ModuleStore, prefs: SharedPreferences) {
                 title = { Text("${b.name} $chap", Modifier.clickable { picking = true }) },
                 actions = {
                     TextButton({ searching = true }) { Text("Search") }
+                    Box {
+                        TextButton({ viewMenu = true }) { Text("View") }
+                        androidx.compose.material3.DropdownMenu(viewMenu, { viewMenu = false }) {
+                            androidx.compose.material3.DropdownMenuItem(
+                                text = { Text((if (showFoot) "\u2713 " else "    ") + "Footnotes") },
+                                onClick = { showFoot = !showFoot; prefs.edit().putBoolean("foot", showFoot).apply() })
+                            androidx.compose.material3.DropdownMenuItem(
+                                text = { Text((if (showXref) "\u2713 " else "    ") + "Cross references") },
+                                onClick = { showXref = !showXref; prefs.edit().putBoolean("xref", showXref).apply() })
+                        }
+                    }
                 },
             )
         },
@@ -157,8 +174,24 @@ fun Reader(store: ModuleStore, prefs: SharedPreferences) {
         },
     ) { pad ->
         Column(Modifier.padding(pad).fillMaxSize().verticalScroll(scroll).padding(horizontal = 18.dp, vertical = 8.dp)) {
-            Text(text, fontFamily = FontFamily.Serif, lineHeight = 28.sp)
+            var layout by remember { mutableStateOf<androidx.compose.ui.text.TextLayoutResult?>(null) }
+            Text(view.text, fontFamily = FontFamily.Serif, lineHeight = 28.sp,
+                onTextLayout = { layout = it },
+                modifier = Modifier.pointerInput(view) {
+                    detectTapGestures { pos ->
+                        val l = layout ?: return@detectTapGestures
+                        val off = l.getOffsetForPosition(pos)
+                        // the marker is small: accept a tap on it or right next to it
+                        val hit = (off - 2..off + 1).firstNotNullOfOrNull { o ->
+                            view.text.getStringAnnotations("note", o.coerceAtLeast(0), (o + 1).coerceAtMost(view.text.length)).firstOrNull()
+                        }
+                        if (hit != null) openNote = view.notes[hit.item.toInt()]
+                    }
+                })
         }
+    }
+    openNote?.let { n ->
+        NoteDialog(bible, n, { openNote = null }) { bk, ch -> openNote = null; go(bk, ch) }
     }
     if (modPicker) ModulePicker(mods, bible.name, { modPicker = false },
         { modPicker = false; importer.launch(arrayOf("application/zip", "application/octet-stream")) }) {
@@ -281,4 +314,26 @@ fun ModulePicker(mods: List<ModInfo>, current: String, onClose: () -> Unit, onIm
             }
         }
     }
+}
+
+@Composable
+fun NoteDialog(bible: Bible, note: NoteItem, onClose: () -> Unit, onGo: (Int, Int) -> Unit) {
+    androidx.compose.material3.AlertDialog(
+        onDismissRequest = onClose,
+        confirmButton = { TextButton(onClose) { Text("Close") } },
+        title = { Text(if (note.crossRef) "Cross references, verse ${note.verse}" else "Note, verse ${note.verse}", fontSize = 18.sp) },
+        text = {
+            Column(Modifier.verticalScroll(rememberScrollState())) {
+                if (!note.crossRef && note.text.isNotEmpty()) Text(note.text, fontSize = 16.sp)
+                for (r in note.refs) {
+                    Column(Modifier.fillMaxWidth().clickable(enabled = r.book > 0) { onGo(r.book, r.chapter) }.padding(vertical = 8.dp)) {
+                        Text(r.label, fontSize = 15.sp, color = MaterialTheme.colorScheme.primary)
+                        if (r.book > 0) Text(bible.verseText(r.book, r.chapter, r.verse), fontSize = 14.sp, maxLines = 4)
+                    }
+                    HorizontalDivider()
+                }
+                if (note.crossRef && note.refs.isEmpty()) Text(note.text)
+            }
+        },
+    )
 }
