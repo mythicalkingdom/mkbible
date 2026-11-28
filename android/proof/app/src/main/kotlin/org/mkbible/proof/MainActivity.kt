@@ -6,7 +6,9 @@ import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.activity.result.contract.ActivityResultContracts
 import androidx.activity.ComponentActivity
 import androidx.activity.compose.setContent
+import androidx.compose.foundation.ExperimentalFoundationApi
 import androidx.compose.foundation.clickable
+import androidx.compose.foundation.combinedClickable
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
@@ -335,7 +337,7 @@ fun Reader(store: ModuleStore, prefs: SharedPreferences, look: Look, dark: Boole
             confirmButton = { TextButton({ message = null }) { Text("OK") } }, text = { Text(m) })
     }
     if (picking) Picker(bible, { picking = false }) { bk, ch, v -> go(bk, ch, v); picking = false }
-    if (searching) SearchScreen(bible, { searching = false }) { bk, ch, v -> go(bk, ch, v); searching = false }
+    if (searching) SearchScreen(bible, { searching = false }) { bk, ch, v, nt -> searching = false; if (nt) newTab(bk, ch, v) else go(bk, ch, v) }
 }
 
 @Composable
@@ -379,8 +381,9 @@ fun Picker(bible: Bible, onClose: () -> Unit, onPick: (Int, Int, Int) -> Unit) {
     }
 }
 
+@OptIn(ExperimentalFoundationApi::class)
 @Composable
-fun SearchScreen(bible: Bible, onClose: () -> Unit, onPick: (Int, Int, Int) -> Unit) {
+fun SearchScreen(bible: Bible, onClose: () -> Unit, onPick: (Int, Int, Int, Boolean) -> Unit) {
     var query by remember { mutableStateOf("") }
     var scope by remember { mutableIntStateOf(0) }
     var hits by remember { mutableStateOf<List<Hit>?>(null) }
@@ -412,9 +415,14 @@ fun SearchScreen(bible: Bible, onClose: () -> Unit, onPick: (Int, Int, Int) -> U
                     Text("${h.size}${if (h.size >= 300) "+" else ""} verses")
                     LazyColumn(Modifier.weight(1f)) {
                         items(h) { x ->
-                            Column(Modifier.fillMaxWidth().clickable { onPick(x.book, x.chapter, x.verse) }.padding(vertical = 8.dp)) {
-                                Text("${bible.bookName(x.book)} ${x.chapter}:${x.verse}",
-                                    fontSize = 14.sp, color = MaterialTheme.colorScheme.primary)
+                            Column(Modifier.fillMaxWidth().combinedClickable(
+                                onClick = { onPick(x.book, x.chapter, x.verse, false) },
+                                onLongClick = { onPick(x.book, x.chapter, x.verse, true) }).padding(vertical = 8.dp)) {
+                                Row(verticalAlignment = Alignment.CenterVertically) {
+                                    Text("${bible.bookName(x.book)} ${x.chapter}:${x.verse}", Modifier.weight(1f),
+                                        fontSize = 14.sp, color = MaterialTheme.colorScheme.primary)
+                                    TextButton({ onPick(x.book, x.chapter, x.verse, true) }) { Text("New tab", fontSize = 13.sp) }
+                                }
                                 Text(x.text, fontSize = 16.sp, maxLines = 3)
                             }
                             HorizontalDivider()
