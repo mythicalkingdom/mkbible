@@ -10,6 +10,12 @@ import androidx.compose.foundation.ExperimentalFoundationApi
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.combinedClickable
 import androidx.compose.foundation.layout.Arrangement
+import androidx.compose.foundation.layout.WindowInsets
+import androidx.compose.foundation.layout.navigationBars
+import androidx.compose.foundation.layout.navigationBarsPadding
+import androidx.compose.foundation.layout.systemBarsPadding
+import androidx.compose.foundation.layout.imePadding
+import androidx.compose.foundation.layout.windowInsetsPadding
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.PaddingValues
@@ -293,7 +299,9 @@ fun Reader(store: ModuleStore, prefs: SharedPreferences, look: Look, dark: Boole
           }
         },
         bottomBar = {
-            Row(Modifier.fillMaxWidth().padding(8.dp), horizontalArrangement = Arrangement.SpaceBetween) {
+            // the app draws edge to edge: keep the buttons clear of the system navigation bar
+            Row(Modifier.fillMaxWidth().windowInsetsPadding(WindowInsets.navigationBars).padding(8.dp),
+                horizontalArrangement = Arrangement.SpaceBetween) {
                 OutlinedButton({ prev() }) { Text("< Previous", maxLines = 1, softWrap = false) }
                 TextButton({ modPicker = true }, Modifier.weight(1f)) {
                     Text(bible.name.take(12), maxLines = 1)
@@ -344,9 +352,9 @@ fun Reader(store: ModuleStore, prefs: SharedPreferences, look: Look, dark: Boole
 fun Picker(bible: Bible, onClose: () -> Unit, onPick: (Int, Int, Int) -> Unit) {
     var chosen by remember { mutableStateOf<Book?>(null) }
     var ref by remember { mutableStateOf("") }
-    androidx.compose.ui.window.Dialog(onClose, androidx.compose.ui.window.DialogProperties(usePlatformDefaultWidth = false)) {
+    FullScreen(onClose) {
         Surface(Modifier.fillMaxSize()) {
-            Column(Modifier.padding(16.dp)) {
+            Column(Modifier.systemBarsPadding().imePadding().padding(16.dp)) {
                 val c = chosen
                 if (c == null) {
                     OutlinedTextField(ref, { ref = it }, Modifier.fillMaxWidth(), label = { Text("Go to (John 3:16)") },
@@ -396,10 +404,10 @@ fun SearchScreen(bible: Bible, onClose: () -> Unit, onPick: (Int, Int, Int, Bool
         }
     }
     val focus = remember { androidx.compose.ui.focus.FocusRequester() }
-    androidx.compose.ui.window.Dialog(onClose, androidx.compose.ui.window.DialogProperties(usePlatformDefaultWidth = false)) {
+    FullScreen(onClose) {
         LaunchedEffect(Unit) { focus.requestFocus() }
         Surface(Modifier.fillMaxSize()) {
-            Column(Modifier.padding(16.dp)) {
+            Column(Modifier.systemBarsPadding().imePadding().padding(16.dp)) {
                 OutlinedTextField(query, { query = it }, Modifier.fillMaxWidth().focusRequester(focus), label = { Text("Search") },
                     singleLine = true,
                     keyboardOptions = KeyboardOptions(imeAction = ImeAction.Search),
@@ -437,9 +445,9 @@ fun SearchScreen(bible: Bible, onClose: () -> Unit, onPick: (Int, Int, Int, Bool
 
 @Composable
 fun ModulePicker(mods: List<ModInfo>, current: String, onClose: () -> Unit, onDownload: () -> Unit, onImport: () -> Unit, onPick: (ModInfo) -> Unit) {
-    androidx.compose.ui.window.Dialog(onClose, androidx.compose.ui.window.DialogProperties(usePlatformDefaultWidth = false)) {
+    FullScreen(onClose) {
         Surface(Modifier.fillMaxSize()) {
-            Column(Modifier.padding(16.dp)) {
+            Column(Modifier.systemBarsPadding().imePadding().padding(16.dp)) {
                 Text("Bible modules", fontSize = 20.sp, modifier = Modifier.padding(bottom = 8.dp))
                 LazyColumn(Modifier.weight(1f)) {
                     items(mods) { m ->
@@ -521,9 +529,9 @@ fun DownloadScreen(store: ModuleStore, onClose: () -> Unit, onInstalled: () -> U
         }
     }
 
-    androidx.compose.ui.window.Dialog(onClose, androidx.compose.ui.window.DialogProperties(usePlatformDefaultWidth = false)) {
+    FullScreen(onClose) {
         Surface(Modifier.fillMaxSize()) {
-            Column(Modifier.padding(16.dp)) {
+            Column(Modifier.systemBarsPadding().imePadding().padding(16.dp)) {
                 Text("Download modules", fontSize = 20.sp)
                 Box {
                     OutlinedButton({ repoMenu = true }, Modifier.fillMaxWidth()) { Text(repo.name, maxLines = 1) }
@@ -580,9 +588,9 @@ fun DownloadScreen(store: ModuleStore, onClose: () -> Unit, onInstalled: () -> U
 
 @Composable
 fun SettingsDialog(look: Look, dark: Boolean, onLook: (Look) -> Unit, onClose: () -> Unit) {
-    androidx.compose.ui.window.Dialog(onClose, androidx.compose.ui.window.DialogProperties(usePlatformDefaultWidth = false)) {
+    FullScreen(onClose) {
         Surface(Modifier.fillMaxSize()) {
-            Column(Modifier.padding(16.dp).verticalScroll(rememberScrollState())) {
+            Column(Modifier.systemBarsPadding().imePadding().padding(16.dp).verticalScroll(rememberScrollState())) {
                 Row(Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically) {
                     Text("Settings", fontSize = 20.sp, modifier = Modifier.weight(1f))
                     TextButton(onClose) { Text("Done") }
@@ -671,4 +679,11 @@ fun StrongsDialog(lex: Lexicons, store: ModuleStore, numbers: String, word: Stri
             }
         },
     )
+}
+
+/** A full-screen page drawn over the reader (not a separate dialog window, so the system bar insets work); Back closes it. */
+@Composable
+fun FullScreen(onClose: () -> Unit, content: @Composable () -> Unit) {
+    androidx.activity.compose.BackHandler(onBack = onClose)
+    content()
 }
